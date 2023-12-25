@@ -72,7 +72,7 @@ function getLiveRegion(): HTMLElement | null {
   return document.getElementById('flash_screenreader_holder')
 }
 
-export default function CanvasInstUIModal({
+function CanvasInstUIModal({
   label,
   closeButtonLabel,
   onDismiss,
@@ -101,4 +101,8 @@ export default function CanvasInstUIModal({
   )
 }
 
-;['Header', 'Body', 'Footer'].forEach(prop => (CanvasInstUIModal[prop] = Modal[prop]))
+export default CanvasInstUIModal
+
+CanvasInstUIModal.Header = Modal.Header
+CanvasInstUIModal.Body = Modal.Body
+CanvasInstUIModal.Footer = Modal.Footer

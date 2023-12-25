@@ -34,7 +34,8 @@ class Lti::LineItem < ApplicationRecord
              foreign_key: :lti_resource_link_id,
              class_name: "Lti::ResourceLink"
   belongs_to :assignment,
-             inverse_of: :line_items
+             inverse_of: :line_items,
+             class_name: "AbstractAssignment"
   belongs_to :root_account,
              class_name: "Account"
   has_many :results,
@@ -44,8 +45,6 @@ class Lti::LineItem < ApplicationRecord
            dependent: :destroy
 
   before_create :set_root_account_id
-  before_destroy :destroy_resource_link, if: :assignment_line_item? # assignment will destroy all the other line_items of a resourceLink
-  before_destroy :destroy_assignment
 
   AGS_EXT_PREFIX = "https://canvas.instructure.com/lti/"
   AGS_EXT_SUBMISSION_TYPE = "#{AGS_EXT_PREFIX}submission_type".freeze
@@ -57,6 +56,13 @@ class Lti::LineItem < ApplicationRecord
 
   def assignment_line_item?
     assignment.line_items.order(:created_at).first.id == id
+  end
+
+  alias_method :original_undestroy, :undestroy
+  private :original_undestroy
+  def undestroy
+    results.find_each(&:undestroy)
+    original_undestroy
   end
 
   def launch_url_extension
@@ -131,19 +137,6 @@ class Lti::LineItem < ApplicationRecord
 
   def client_id_is_global?
     client_id.present? && client_id > Shard::IDS_PER_SHARD
-  end
-
-  # this is to prevent orphaned (ie undeleted state) line_items when an assignment is destroyed
-  def destroy_resource_link
-    resource_link&.destroy
-  end
-
-  # This is to delete assignments that were created with the line items API
-  # the API
-  def destroy_assignment
-    return unless assignment_line_item? && !coupled
-
-    assignment.destroy
   end
 
   def set_root_account_id

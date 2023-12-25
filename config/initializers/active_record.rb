@@ -175,11 +175,11 @@ class ActiveRecord::Base
 
   # little helper to keep checks concise and avoid a db lookup
   def has_asset?(asset, field = :context)
-    asset&.id == send("#{field}_id") && asset.class.base_class.name == send("#{field}_type")
+    asset&.id == send(:"#{field}_id") && asset.class.polymorphic_name == send(:"#{field}_type")
   end
 
   def context_string(field = :context)
-    send("#{field}_type").underscore + "_" + send("#{field}_id").to_s if send("#{field}_type")
+    send(:"#{field}_type").underscore + "_" + send(:"#{field}_id").to_s if send(:"#{field}_type")
   end
 
   def self.asset_string_backcompat_module
@@ -191,7 +191,7 @@ class ActiveRecord::Base
     unless method
       # this is weird, but gets the instance methods defined so they can be chained
       begin
-        new.send("#{association_version_name}_id")
+        new.send(:"#{association_version_name}_id")
       rescue
         # the db doesn't exist yet; no need to bother with backcompat methods anyway
         return
@@ -314,7 +314,8 @@ class ActiveRecord::Base
     hash = serializable_hash(options)
 
     if options[:permissions]
-      obj_hash = options[:include_root] ? hash[self.class.base_class.model_name.element] : hash
+      obj_hash = options[:include_root] ? hash[self.class.serialization_root_key] : hash
+
       if respond_to?(:filter_attributes_for_user)
         filter_attributes_for_user(obj_hash, options[:permissions][:user], options[:permissions][:session])
       end
@@ -342,6 +343,14 @@ class ActiveRecord::Base
 
   def self.reflection_type_name
     base_class.name.underscore
+  end
+
+  def self.serialization_root_key
+    base_class.model_name.element
+  end
+
+  def self.url_context_class
+    base_class
   end
 
   ruby2_keywords def wildcard(*args)
@@ -577,6 +586,20 @@ class ActiveRecord::Base
     end
   end
 
+  # Returns the class for the provided +name+.
+  #
+  # It is used to find the class correspondent to the value stored in the polymorphic type column.
+  def self.polymorphic_class_for(name)
+    case name
+    when "Assignment"
+      # Let's be consistent with the way AR handles things by default for STI. If name is "Assignment"
+      # we'll fetch the Assignment or SubAssignment through its base class (AbstractAssignment).
+      super("AbstractAssignment")
+    else
+      super
+    end
+  end
+
   def self.unique_constraint_retry(retries = 1)
     # runs the block in a (possibly nested) transaction. if a unique constraint
     # violation occurs, it will run it "retries" more times. the nested
@@ -802,7 +825,7 @@ module UsefulFindInBatches
 
     kwargs.delete(:error_on_ignore)
     activate do |r|
-      r.send("in_batches_with_#{strategy}", start:, finish:, order:, **kwargs, &block)
+      r.send(:"in_batches_with_#{strategy}", start:, finish:, order:, **kwargs, &block)
       nil
     end
   end
@@ -2119,7 +2142,7 @@ module UserContentSerialization
       end
     end
     if options && options[:include_root]
-      result = { self.class.base_class.model_name.element => result }
+      result = { self.class.serialization_root_key => result }.with_indifferent_access
     end
     result
   end

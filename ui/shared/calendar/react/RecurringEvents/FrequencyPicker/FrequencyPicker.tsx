@@ -19,7 +19,7 @@
 import {useScope} from '@canvas/i18n'
 import {SimpleSelect} from '@instructure/ui-simple-select'
 import React, {useCallback, useRef, useEffect, useState} from 'react'
-import moment, {Moment} from 'moment-timezone'
+import moment, {type Moment} from 'moment-timezone'
 import {
   generateFrequencyOptions,
   generateFrequencyRRULE,
@@ -27,7 +27,7 @@ import {
 } from './utils'
 import CustomRecurrenceModal from '../CustomRecurrenceModal/CustomRecurrenceModal'
 import {getSelectTextWidth} from '../utils'
-import {FrequencyOptionValue} from '../types'
+import type {FrequencyOptionValue} from '../types'
 
 const {Option} = SimpleSelect as any
 const I18n = useScope('calendar_frequency_picker')
@@ -187,6 +187,7 @@ export default function FrequencyPicker({
 
   const handleDismissModal = useCallback(() => {
     setIsModalOpen(false)
+    handleCloseModal()
     let freq: FrequencyOptionValue
     if (currRRule === null) {
       freq = 'not-repeat'
@@ -197,7 +198,7 @@ export default function FrequencyPicker({
       }
     }
     setFrequency(freq)
-  }, [currRRule, parsedMoment])
+  }, [currRRule, parsedMoment, handleCloseModal])
 
   const handleSaveCustomRecurrence = useCallback(
     (newRRule: string) => {

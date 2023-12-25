@@ -23,6 +23,9 @@ import {ApolloProvider} from 'react-apollo'
 import {handlers} from '../../../../graphql/mswHandlers'
 import {mswClient} from '../../../../../../shared/msw/mswClient'
 import {mswServer} from '../../../../../../shared/msw/mswServer'
+import {enableFetchMocks} from 'jest-fetch-mock'
+
+enableFetchMocks()
 
 const server = mswServer(handlers)
 beforeAll(() => {
@@ -130,12 +133,12 @@ describe('Address Book Component', () => {
   })
 
   describe('Behaviors', () => {
-    it('Should not set popup menu to open when button is pressed', async () => {
+    it('Should set popup menu to open when button is pressed', async () => {
       const mockSetIsMenuOpen = jest.fn()
       const {container} = setup({...defaultProps, setIsMenuOpen: mockSetIsMenuOpen})
       const button = container.querySelector('button')
       fireEvent.click(button)
-      expect(mockSetIsMenuOpen).not.toHaveBeenCalled()
+      expect(mockSetIsMenuOpen).toHaveBeenCalled()
     })
 
     it('Should set popup menu to false when address button is pressed and popup is open', async () => {

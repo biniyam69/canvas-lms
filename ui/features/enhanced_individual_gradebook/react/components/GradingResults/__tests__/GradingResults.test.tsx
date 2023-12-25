@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /*
  * Copyright (C) 2023 - present Instructure, Inc.
  *
@@ -20,7 +21,7 @@ import $ from 'jquery'
 import React from 'react'
 import {render} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import GradingResults, {GradingResultsComponentProps} from '..'
+import GradingResults, {type GradingResultsComponentProps} from '..'
 import {
   defaultStudentSubmissions,
   defaultAssignment,
@@ -29,13 +30,13 @@ import {
 } from './fixtures'
 import {GRADEBOOK_SUBMISSION_COMMENTS} from '../../../../queries/Queries'
 import {MockedProvider} from '@apollo/react-testing'
-import {executeApiRequest} from '@canvas/util/apiRequest'
-import {
+import {executeApiRequest} from '@canvas/do-fetch-api-effect/apiRequest'
+import type {
   AssignmentConnection,
   GradebookUserSubmissionDetails,
 } from 'features/enhanced_individual_gradebook/types'
 
-jest.mock('@canvas/util/apiRequest', () => ({
+jest.mock('@canvas/do-fetch-api-effect/apiRequest', () => ({
   executeApiRequest: jest.fn(),
 }))
 
@@ -574,18 +575,21 @@ describe('Grading Results Tests', () => {
     })
     it('grade input and excuse checkbox are disabled when assignment is in a closed grading period and user is not an admin', () => {
       ENV.current_user_roles = ['teacher']
+      ENV.current_user_is_admin = false
       const {getByTestId} = renderGradingResults(props)
       expect(getByTestId('student_and_assignment_grade_input')).toBeDisabled()
       expect(getByTestId('excuse_assignment_checkbox')).toBeDisabled()
     })
     it('grade input is not disabled when assignment is in a closed grading period and user is an admin', () => {
       ENV.current_user_roles = ['admin']
+      ENV.current_user_is_admin = true
       const {getByTestId} = renderGradingResults(props)
       expect(getByTestId('student_and_assignment_grade_input')).toBeEnabled()
       expect(getByTestId('excuse_assignment_checkbox')).toBeEnabled()
     })
     it('submission details grade input and update grade button are disabled when assignment is in a closed grading period and user is not an admin', () => {
       ENV.current_user_roles = ['teacher']
+      ENV.current_user_is_admin = false
       const {getByTestId} = renderGradingResults(props)
       userEvent.click(getByTestId('submission-details-button'))
       expect(getByTestId('submission-details-submit-button')).toBeDisabled()
@@ -593,6 +597,7 @@ describe('Grading Results Tests', () => {
     })
     it('submission details grade input and update grade button are not disabled when assignment is in a closed grading period and user is an admin', () => {
       ENV.current_user_roles = ['admin']
+      ENV.current_user_is_admin = true
       const {getByTestId} = renderGradingResults(props)
       userEvent.click(getByTestId('submission-details-button'))
       expect(getByTestId('submission-details-submit-button')).toBeEnabled()

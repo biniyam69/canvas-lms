@@ -154,8 +154,6 @@ describe('CalendarEventDetailsForm', () => {
   })
 
   it('shows UpdateCalendarEventsDialog when saving a recurring event', async () => {
-    ENV.FEATURES.calendar_series = true
-
     const props = eventFormProps()
     props.event.calendarEvent = {
       ...props.event.calendarEvent,
@@ -312,6 +310,18 @@ describe('CalendarEventDetailsForm', () => {
     expect(errMessage).not.toBeInTheDocument()
   })
 
+  it('allows setting arbitrary start/ end times', () => {
+    const {getByTestId} = render(<CalendarEventDetailsForm {...defaultProps} />)
+    const startInput = getByTestId('event-form-start-time')
+    const endInput = getByTestId('event-form-end-time')
+    userEvent.clear(startInput)
+    userEvent.type(startInput, '8:14 AM')
+    userEvent.clear(endInput)
+    userEvent.type(endInput, '9:38 AM')
+    expect(startInput.value).toBe('8:14 AM')
+    expect(endInput.value).toBe('9:38 AM')
+  })
+
   it('cannot submit with an empty title', () => {
     const event = {...defaultProps.event, title: ''}
     const component = render(<CalendarEventDetailsForm {...defaultProps} event={event} />)
@@ -341,6 +351,7 @@ describe('CalendarEventDetailsForm', () => {
 
     const errMessage = component.queryByText('This date is invalid.')
     expect(errMessage).not.toBeInTheDocument()
+    expect(component.getByRole('button', {name: 'Submit'})).toBeEnabled()
   })
 
   it('shows an error when user input is an invalid string', () => {
@@ -352,6 +363,20 @@ describe('CalendarEventDetailsForm', () => {
     expect(component.getByRole('button', {name: 'Submit'})).toBeDisabled()
     expect(component.getByText('This date is invalid.')).toBeInTheDocument()
     expect(component.getByTestId('edit-calendar-event-form-date')).toHaveValue('avocado')
+  })
+
+  it('does not show error with when choosing another date time format', () => {
+    jest.spyOn(window.navigator, 'language', 'get').mockReturnValue('en-AU')
+    const component = render(<CalendarEventDetailsForm {...defaultProps} />)
+    userEvent.click(component.getByTestId('edit-calendar-event-form-date'))
+    userEvent.click(component.getByTestId('edit-calendar-event-form-title'))
+    expect(component.getByTestId('edit-calendar-event-form-date').value).toMatch(
+      /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}$/
+    )
+
+    const errMessage = component.queryByText('This date is invalid.')
+    expect(errMessage).not.toBeInTheDocument()
+    expect(component.getByRole('button', {name: 'Submit'})).toBeEnabled()
   })
 
   it('renders and updates an event with conferencing when it is available', async () => {
@@ -481,13 +506,11 @@ describe('CalendarEventDetailsForm', () => {
 
   describe('frequency picker', () => {
     beforeEach(() => {
-      ENV.FEATURES.calendar_series = true
       defaultProps.event.isNewEvent = () => true
       commonEventFactory.mockImplementation(() => defaultProps.event)
     })
 
     afterEach(() => {
-      ENV.FEATURES.calendar_series = false
       defaultProps.event.isNewEvent = () => false
       jest.resetModules()
     })
@@ -501,12 +524,6 @@ describe('CalendarEventDetailsForm', () => {
       defaultProps.event.isNewEvent = () => false
       const component = render(<CalendarEventDetailsForm {...defaultProps} />)
       expect(component.queryByRole('combobox', {name: 'Frequency'})).toBeInTheDocument()
-    })
-
-    it('does not render when calendar_series is disabled', async () => {
-      ENV.FEATURES.calendar_series = false
-      const component = render(<CalendarEventDetailsForm {...defaultProps} />)
-      expect(component.queryByRole('combobox', {name: 'Frequency'})).not.toBeInTheDocument()
     })
 
     it('with option selected contains RRULE on submit', async () => {

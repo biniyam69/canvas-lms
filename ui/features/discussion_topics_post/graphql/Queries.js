@@ -20,7 +20,6 @@ import {AnonymousUser} from './AnonymousUser'
 import {Discussion} from './Discussion'
 import {Course} from './Course'
 import {DiscussionEntry} from './DiscussionEntry'
-import {DiscussionEntryDraft} from './DiscussionEntryDraft'
 import gql from 'graphql-tag'
 import {PageInfo} from './PageInfo'
 import {User} from './User'
@@ -83,14 +82,6 @@ export const DISCUSSION_QUERY = gql`
             ...PageInfo
           }
         }
-        discussionEntryDraftsConnection {
-          nodes {
-            ...DiscussionEntryDraft
-          }
-          pageInfo {
-            ...PageInfo
-          }
-        }
         entriesTotalPages(
           perPage: $perPage
           rootEntries: $rootEntries
@@ -114,7 +105,6 @@ export const DISCUSSION_QUERY = gql`
   ${AnonymousUser.fragment}
   ${Discussion.fragment}
   ${DiscussionEntry.fragment}
-  ${DiscussionEntryDraft.fragment}
   ${PageInfo.fragment}
   ${GroupSet.fragment}
   ${Group.fragment}
@@ -228,6 +218,8 @@ export const DISCUSSION_ENTRY_ALL_ROOT_ENTRIES_QUERY = gql`
   ) {
     legacyNode(_id: $discussionEntryID, type: DiscussionEntry) {
       ... on DiscussionEntry {
+        id
+        _id
         allRootEntries {
           ...DiscussionEntry
           editor(courseId: $courseID, roleTypes: $rolePillTypes) {

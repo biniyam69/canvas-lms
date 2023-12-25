@@ -43,7 +43,7 @@ module Lti
 
     def self.register_expansion(name, permission_groups, expansion_proc, *guards, **kwargs)
       @expansions ||= {}
-      @expansions["$#{name}".to_sym] = VariableExpansion.new(
+      @expansions[:"$#{name}"] = VariableExpansion.new(
         name,
         permission_groups,
         expansion_proc,
@@ -53,7 +53,7 @@ module Lti
     end
 
     def self.deregister_expansion(name)
-      @expansions.delete "$#{name}".to_sym
+      @expansions.delete :"$#{name}"
     end
 
     def self.expansions
@@ -120,7 +120,7 @@ module Lti
       @context = context
       @controller = controller
       @request = controller.request if controller
-      opts.each { |opt, val| instance_variable_set("@#{opt}", val) }
+      opts.each { |opt, val| instance_variable_set(:"@#{opt}", val) }
 
       # This will provide the most accurate version of the actual launch
       # url used, whether directly provided from a resource link or
@@ -169,7 +169,7 @@ module Lti
 
     def enabled_capability_params(enabled_capabilities)
       enabled_capabilities.each_with_object({}) do |capability, hash|
-        if (expansion = capability.respond_to?(:to_sym) && self.class.expansions["$#{capability}".to_sym])
+        if (expansion = capability.respond_to?(:to_sym) && self.class.expansions[:"$#{capability}"])
           value = expansion.expand(self)
           hash[expansion.default_name] = value if expansion.default_name.present? && value != "$#{capability}"
         end
@@ -230,8 +230,8 @@ module Lti
     # Returns "$ResourceLink.title" otherwise
     register_expansion "ResourceLink.title",
                        [],
-                       -> { @assignment.title },
-                       -> { @assignment && @assignment.title.present? },
+                       -> { @resource_link&.title || @assignment&.title || lti_helper.tag_from_resource_link(@resource_link)&.title || @context.name },
+                       -> { @resource_link || (@assignment && @assignment.title.present?) },
                        default_name: "resourcelink_title"
 
     # LTI - Custom parameter substitution: ResourceLink.available.startDateTime
@@ -319,6 +319,7 @@ module Lti
 
     # Returns the RCS Service JWT for the current user
     #
+    # @internal
     # @example
     #   ```
     #   "base64-encoded-service-jwt"
@@ -333,6 +334,20 @@ module Lti
                        INTERNAL_TOOL_GUARD,
                        default_name: "com_instructure_rcs_service_jwt"
 
+    # Returns instui_nav release flag state
+    #
+    # @internal
+    # @example
+    #   ```
+    #   "true"
+    #   "false"
+    #   ```
+    register_expansion "com.instructure.instui_nav",
+                       [],
+                       -> { @root_account.feature_enabled?(:instui_nav) },
+                       INTERNAL_TOOL_GUARD,
+                       default_name: "com_instructure_instui_nav"
+
     # returns all observee ids linked to this observer as an String separated by `,`
     # @launch_parameter com_instructure_observee_ids
     # @example
@@ -343,7 +358,7 @@ module Lti
                        [],
                        lambda {
                          observed_users = ObserverEnrollment.observed_students(@context, @current_user).keys
-                         observed_users&.collect { |user| find_sis_user_id_for(user) }&.compact&.join(",")
+                         observed_users&.filter_map { |user| find_sis_user_id_for(user) }&.join(",")
                        },
                        COURSE_GUARD,
                        default_name: "com_instructure_observee_sis_ids"

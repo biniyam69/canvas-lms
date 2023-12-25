@@ -38,7 +38,12 @@ import CanvasMultiSelect from '@canvas/multi-select'
 import CanvasRce from '@canvas/rce/react/CanvasRce'
 import {Alert} from '@instructure/ui-alerts'
 import {GradedDiscussionOptions} from '../GradedDiscussionOptions/GradedDiscussionOptions'
-import {GradedDiscussionDueDatesContext} from '../../util/constants'
+import {
+  GradedDiscussionDueDatesContext,
+  defaultEveryoneOption,
+  defaultEveryoneElseOption,
+  masteryPathsOption,
+} from '../../util/constants'
 import {nanoid} from 'nanoid'
 import {AttachmentDisplay} from '@canvas/discussions/react/components/AttachmentDisplay/AttachmentDisplay'
 import {responsiveQuerySizes} from '@canvas/discussions/react/utils'
@@ -97,51 +102,91 @@ export default function DiscussionTopicForm({
 
   const inputWidth = '100%'
 
-  const [title, setTitle] = useState('')
+  const [title, setTitle] = useState(currentDiscussionTopic?.title || '')
   const [titleValidationMessages, setTitleValidationMessages] = useState([
     {text: '', type: 'success'},
   ])
 
-  const [rceContent, setRceContent] = useState('')
+  const [rceContent, setRceContent] = useState(currentDiscussionTopic?.message || '')
 
-  const [sectionIdsToPostTo, setSectionIdsToPostTo] = useState(['all'])
+  const [sectionIdsToPostTo, setSectionIdsToPostTo] = useState(
+    currentDiscussionTopic?.courseSections && currentDiscussionTopic?.courseSections.length > 0
+      ? currentDiscussionTopic?.courseSections.map(section => section._id)
+      : ['all']
+  )
 
-  const [discussionAnonymousState, setDiscussionAnonymousState] = useState('off')
+  const [discussionAnonymousState, setDiscussionAnonymousState] = useState(
+    currentDiscussionTopic?.anonymousState || 'off'
+  )
   // default anonymousAuthorState to true, since it is the default selection for partial anonymity
   // otherwise, it is just ignored anyway
-  const [anonymousAuthorState, setAnonymousAuthorState] = useState(true)
-  const [requireInitialPost, setRequireInitialPost] = useState(false)
-  const [enablePodcastFeed, setEnablePodcastFeed] = useState(false)
-  const [includeRepliesInFeed, setIncludeRepliesInFeed] = useState(false)
-  const [isGraded, setIsGraded] = useState(false)
-  const [allowLiking, setAllowLiking] = useState(false)
-  const [onlyGradersCanLike, setOnlyGradersCanLike] = useState(false)
-  const [addToTodo, setAddToTodo] = useState(false)
-  const [todoDate, setTodoDate] = useState(null)
-  const [isGroupDiscussion, setIsGroupDiscussion] = useState(false)
-  const [groupCategoryId, setGroupCategoryId] = useState(null)
+  const [anonymousAuthorState, setAnonymousAuthorState] = useState(
+    currentDiscussionTopic?.isAnonymousAuthor || true
+  )
+  const [requireInitialPost, setRequireInitialPost] = useState(
+    currentDiscussionTopic?.requireInitialPost || false
+  )
+  const [enablePodcastFeed, setEnablePodcastFeed] = useState(
+    currentDiscussionTopic?.podcastEnabled || false
+  )
+  const [includeRepliesInFeed, setIncludeRepliesInFeed] = useState(
+    currentDiscussionTopic?.podcastHasStudentPosts || false
+  )
+  const [isGraded, setIsGraded] = useState(!!currentDiscussionTopic?.assignment || false)
+  const [allowLiking, setAllowLiking] = useState(currentDiscussionTopic?.allowRating || false)
+  const [onlyGradersCanLike, setOnlyGradersCanLike] = useState(
+    currentDiscussionTopic?.onlyGradersCanRate || false
+  )
+  const [addToTodo, setAddToTodo] = useState(!!currentDiscussionTopic?.todoDate || false)
+  const [todoDate, setTodoDate] = useState(currentDiscussionTopic?.todoDate || null)
+  const [isGroupDiscussion, setIsGroupDiscussion] = useState(
+    !!currentDiscussionTopic?.groupSet || false
+  )
+  const [groupCategoryId, setGroupCategoryId] = useState(
+    currentDiscussionTopic?.groupSet?._id || null
+  )
   const [groupCategorySelectError, setGroupCategorySelectError] = useState([])
-  const [delayPosting, setDelayPosting] = useState(false)
-  const [locked, setLocked] = useState(false)
+  const [delayPosting, setDelayPosting] = useState(
+    (!!currentDiscussionTopic?.delayedPostAt && isAnnouncement) || false
+  )
+  const [locked, setLocked] = useState((currentDiscussionTopic.locked && isAnnouncement) || false)
 
-  const [availableFrom, setAvailableFrom] = useState(null)
-  const [availableUntil, setAvailableUntil] = useState(null)
+  const [availableFrom, setAvailableFrom] = useState(currentDiscussionTopic?.delayedPostAt || null)
+  const [availableUntil, setAvailableUntil] = useState(currentDiscussionTopic?.lockAt || null)
   const [willAnnouncementPostRightAway, setWillAnnouncementPostRightAway] = useState(true)
-  const [availabiltyValidationMessages, setAvailabilityValidationMessages] = useState([
+  const [availabilityValidationMessages, setAvailabilityValidationMessages] = useState([
     {text: '', type: 'success'},
   ])
 
-  const [pointsPossible, setPointsPossible] = useState(0)
-  const [displayGradeAs, setDisplayGradeAs] = useState('points')
-  const [assignmentGroup, setAssignmentGroup] = useState('')
-  const [peerReviewAssignment, setPeerReviewAssignment] = useState('off')
-  const [peerReviewsPerStudent, setPeerReviewsPerStudent] = useState(1)
-  const [peerReviewDueDate, setPeerReviewDueDate] = useState('')
+  const [pointsPossible, setPointsPossible] = useState(
+    currentDiscussionTopic?.assignment?.pointsPossible || 0
+  )
+  const [displayGradeAs, setDisplayGradeAs] = useState(
+    currentDiscussionTopic?.assignment?.gradingType || 'points'
+  )
+  const [assignmentGroup, setAssignmentGroup] = useState(
+    currentDiscussionTopic?.assignment?.assignmentGroup?._id || ''
+  )
+  const [peerReviewAssignment, setPeerReviewAssignment] = useState(() => {
+    if (currentDiscussionTopic?.assignment?.peerReviews?.enabled) {
+      return currentDiscussionTopic?.assignment?.peerReviews?.automaticReviews
+        ? 'automatically'
+        : 'manually'
+    }
+    return 'off'
+  })
+
+  const [peerReviewsPerStudent, setPeerReviewsPerStudent] = useState(
+    currentDiscussionTopic?.assignment?.peerReviews?.count || 1
+  )
+  const [peerReviewDueDate, setPeerReviewDueDate] = useState(
+    currentDiscussionTopic?.assignment?.peerReviews?.dueAt || ''
+  )
   const [dueDateErrorMessages, setDueDateErrorMessages] = useState([])
   const [assignedInfoList, setAssignedInfoList] = useState([
     {
       dueDateId: nanoid(),
-      assignedList: ['everyone'],
+      assignedList: [defaultEveryoneOption.assetCode],
       dueDate: '',
       availableFrom: '',
       availableUntil: '',
@@ -162,48 +207,23 @@ export default function DiscussionTopicForm({
   }
   const [showGroupCategoryModal, setShowGroupCategoryModal] = useState(false)
 
-  const [attachment, setAttachment] = useState(null)
+  const [attachment, setAttachment] = useState(currentDiscussionTopic?.attachment || null)
   const [attachmentToUpload, setAttachmentToUpload] = useState(false)
   const affectUserFileQuota = false
 
-  const [usageRightsData, setUsageRightsData] = useState({})
+  const [usageRightsData, setUsageRightsData] = useState(
+    currentDiscussionTopic?.attachment?.usageRights || {}
+  )
   const [usageRightsErrorState, setUsageRightsErrorState] = useState(false)
+
+  const [postToSis, setPostToSis] = useState(
+    !!currentDiscussionTopic?.assignment?.postToSis || false
+  )
 
   const handleSettingUsageRightsData = data => {
     setUsageRightsErrorState(false)
     setUsageRightsData(data)
   }
-
-  useEffect(() => {
-    if (!isEditing || !currentDiscussionTopic) return
-
-    setTitle(currentDiscussionTopic.title)
-    setRceContent(currentDiscussionTopic.message)
-    const sectionIds =
-      currentDiscussionTopic.courseSections && currentDiscussionTopic.courseSections.length > 0
-        ? currentDiscussionTopic.courseSections.map(section => section._id)
-        : ['all']
-    setSectionIdsToPostTo(sectionIds)
-    setDiscussionAnonymousState(currentDiscussionTopic.anonymousState || 'off')
-    setAnonymousAuthorState(currentDiscussionTopic.isAnonymousAuthor)
-    setRequireInitialPost(currentDiscussionTopic.requireInitialPost)
-    setEnablePodcastFeed(currentDiscussionTopic.podcastEnabled)
-    setIncludeRepliesInFeed(currentDiscussionTopic.podcastHasStudentPosts)
-
-    setAllowLiking(currentDiscussionTopic.allowRating)
-    setOnlyGradersCanLike(currentDiscussionTopic.onlyGradersCanRate)
-    setAddToTodo(!!currentDiscussionTopic.todoDate)
-    setTodoDate(currentDiscussionTopic.todoDate)
-    setIsGroupDiscussion(!!currentDiscussionTopic.groupSet)
-    setGroupCategoryId(currentDiscussionTopic.groupSet?._id)
-
-    setAvailableFrom(currentDiscussionTopic.delayedPostAt)
-    setAvailableUntil(currentDiscussionTopic.lockAt)
-    setDelayPosting(!!currentDiscussionTopic.delayedPostAt && isAnnouncement)
-    setLocked(currentDiscussionTopic.locked && isAnnouncement)
-    setAttachment(currentDiscussionTopic.attachment)
-    setUsageRightsData(currentDiscussionTopic?.attachment?.usageRights)
-  }, [isEditing, currentDiscussionTopic, discussionAnonymousState, isAnnouncement])
 
   useEffect(() => {
     if (delayPosting) {
@@ -214,6 +234,10 @@ export default function DiscussionTopicForm({
       setWillAnnouncementPostRightAway(true)
     }
   }, [availableFrom, delayPosting])
+
+  useEffect(() => {
+    if (!isGroupDiscussion) setGroupCategoryId(null)
+  }, [isGroupDiscussion])
 
   const validateTitle = newTitle => {
     if (newTitle.length > 255) {
@@ -305,6 +329,31 @@ export default function DiscussionTopicForm({
         })
       }
 
+      const illegalGroupCategoryError = {
+        text: I18n.t('Groups can only be part of the actively selected group set.'),
+        type: 'error',
+      }
+
+      const availableAssetCodes =
+        groupCategories
+          .find(groupCategory => groupCategory._id === groupCategoryId)
+          ?.groupsConnection?.nodes.map(group => `group_${group._id}`) || []
+
+      if (
+        currentAssignedInfo.assignedList.filter(assetCode => {
+          if (assetCode.includes('group')) {
+            return !availableAssetCodes.includes(assetCode)
+          } else {
+            return false
+          }
+        }).length > 0
+      ) {
+        foundErrors.push({
+          dueDateId: currentAssignedInfo.dueDateId,
+          message: illegalGroupCategoryError,
+        })
+      }
+
       return foundErrors
     }, [])
 
@@ -316,6 +365,114 @@ export default function DiscussionTopicForm({
 
     // All assignedLists are valid if no errors were found.
     return true
+  }
+
+  const prepareOverride = (
+    overrideDueDate,
+    overrideAvailableUntil,
+    overrideAvailableFrom,
+    overrideIds = {
+      groupId: null,
+      courseSectionId: null,
+      studentIds: null,
+      noopId: null,
+    },
+    overrideTitle = null
+  ) => {
+    return {
+      dueAt: overrideDueDate || null,
+      lockAt: overrideAvailableUntil || null,
+      unlockAt: overrideAvailableFrom || null,
+      groupId: overrideIds.groupIds || null,
+      courseSectionId: overrideIds.courseSectionId || null,
+      studentIds: overrideIds.studentIds || null,
+      noopId: overrideIds.noopId || null,
+      title: overrideTitle || null,
+    }
+  }
+
+  const prepareAssignmentOverridesPayload = () => {
+    const onlyVisibleToEveryone = assignedInfoList.every(
+      info =>
+        info.assignedList.length === 1 && info.assignedList[0] === defaultEveryoneOption.assetCode
+    )
+
+    if (onlyVisibleToEveryone) return null
+
+    const preparedOverrides = []
+    assignedInfoList.forEach(info => {
+      const {assignedList} = info
+      const studentIds = assignedList.filter(assetCode => assetCode.includes('user'))
+      const sectionIds = assignedList.filter(assetCode => assetCode.includes('section'))
+      const groupIds = assignedList.filter(assetCode => assetCode.includes('group'))
+
+      // override for student ids
+      if (studentIds.length > 0) {
+        preparedOverrides.push(
+          prepareOverride(
+            info.dueDate || null,
+            info.availableUntil || null,
+            info.availableFrom || null,
+            {
+              studentIds:
+                studentIds.length > 0 ? studentIds.map(id => id.split('_').reverse()[0]) : null,
+            }
+          )
+        )
+      }
+
+      // override for section ids
+      if (sectionIds.length > 0) {
+        sectionIds.forEach(sectionId => {
+          preparedOverrides.push(
+            prepareOverride(
+              info.dueDate || null,
+              info.availableUntil || null,
+              info.availableFrom || null,
+              {
+                courseSectionId: sectionId.split('_').reverse()[0] || null,
+              }
+            )
+          )
+        })
+      }
+
+      // override for group ids
+      if (groupIds.length > 0) {
+        groupIds.forEach(groupId => {
+          preparedOverrides.push(
+            prepareOverride(
+              info.dueDate || null,
+              info.availableUntil || null,
+              info.availableFrom || null,
+              {
+                groupIds: groupId.split('_').reverse()[0] || null,
+              }
+            )
+          )
+        })
+      }
+    })
+
+    const masteryPathOverride = assignedInfoList.find(info =>
+      info.assignedList.includes(masteryPathsOption.assetCode)
+    )
+
+    if (masteryPathOverride) {
+      preparedOverrides.push(
+        prepareOverride(
+          masteryPathOverride.dueDate || null,
+          masteryPathOverride.availableUntil || null,
+          masteryPathOverride.availableFrom || null,
+          {
+            noopId: '1',
+          },
+          masteryPathsOption.label
+        )
+      )
+    }
+
+    return preparedOverrides
   }
 
   const preparePeerReviewPayload = () => {
@@ -330,16 +487,42 @@ export default function DiscussionTopicForm({
   }
 
   const prepareAssignmentPayload = () => {
-    return isGraded
-      ? {
-          courseId: ENV.context_id,
-          name: title,
-          pointsPossible,
-          gradingType: displayGradeAs,
-          assignmentGroupId: assignmentGroup,
-          peerReviews: preparePeerReviewPayload(),
-        }
-      : null
+    // Return null immediately if the assignment is not graded
+    if (!isGraded) return null
+
+    const everyoneOverride =
+      assignedInfoList.find(
+        info =>
+          info.assignedList.includes(defaultEveryoneOption.assetCode) ||
+          info.assignedList.includes(defaultEveryoneElseOption.assetCode)
+      ) || {}
+
+    // Common payload properties for graded assignments
+    let payload = {
+      pointsPossible,
+      postToSis,
+      gradingType: displayGradeAs,
+      assignmentGroupId: assignmentGroup || null,
+      peerReviews: preparePeerReviewPayload(),
+      assignmentOverrides: prepareAssignmentOverridesPayload(),
+      groupCategoryId: isGroupDiscussion ? groupCategoryId : null,
+      dueAt: everyoneOverride.dueDate || null,
+      lockAt: everyoneOverride.availableUntil || null,
+      unlockAt: everyoneOverride.availableFrom || null,
+      onlyVisibleToOverrides: assignedInfoList.every(
+        info =>
+          info.assignedList.length === 1 && info.assignedList[0] === defaultEveryoneOption.assetCode
+      ),
+    }
+    // Additional properties for creation of a graded assignment
+    if (!isEditing) {
+      payload = {
+        ...payload,
+        courseId: ENV.context_id,
+        name: title,
+      }
+    }
+    return payload
   }
 
   const submitForm = shouldPublish => {
@@ -616,6 +799,7 @@ export default function DiscussionTopicForm({
           )}
           {discussionAnonymousState === 'off' && !isAnnouncement && !isGroupContext && (
             <Checkbox
+              data-testid="graded-checkbox"
               label={I18n.t('Graded')}
               value="graded"
               checked={isGraded}
@@ -767,6 +951,8 @@ export default function DiscussionTopicForm({
                   setPeerReviewsPerStudent={setPeerReviewsPerStudent}
                   peerReviewDueDate={peerReviewDueDate}
                   setPeerReviewDueDate={setPeerReviewDueDate}
+                  postToSis={postToSis}
+                  setPostToSis={setPostToSis}
                 />
               </GradedDiscussionDueDatesContext.Provider>
             </View>
@@ -800,7 +986,7 @@ export default function DiscussionTopicForm({
                 }}
                 datePlaceholder={I18n.t('Select Date')}
                 invalidDateTimeMessage={I18n.t('Invalid date and time')}
-                messages={availabiltyValidationMessages}
+                messages={availabilityValidationMessages}
                 layout="columns"
               />
             </FormFieldGroup>

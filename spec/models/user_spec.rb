@@ -1317,6 +1317,18 @@ describe User do
       @fake_student = @course.student_view_student
       expect(@fake_student.can_masquerade?(@teacher, Account.default)).to be_truthy
     end
+
+    it "doesn't allow teacher to become student view of random student" do
+      course_with_teacher(active_all: true)
+      @fake_student = user_factory
+      expect(@fake_student.can_masquerade?(@teacher, Account.default)).to be_falsey
+    end
+
+    it "doesn't allow fake student to become teacher" do
+      course_with_teacher(active_all: true)
+      @fake_student = @course.student_view_student
+      expect(@teacher.can_masquerade?(@fake_student, Account.default)).to be_falsey
+    end
   end
 
   describe "#has_subset_of_account_permissions?" do
@@ -3710,33 +3722,6 @@ describe User do
       f.submission_context_code = @course.asset_string
       f.save!
       expect(@user.submissions_folder(@course)).to eq f
-    end
-  end
-
-  describe "submittable_attachments" do
-    before(:once) do
-      student_in_course
-      group_model
-      @other_group = @group
-      group_model
-      @group.add_user @student
-      @a1 = attachment_with_context(@student)
-      @a2 = attachment_with_context(@group)
-      @a3 = attachment_with_context(@other_group)
-    end
-
-    it "matches non-deleted attachments in user or group context" do
-      expect(@student.submittable_attachments.pluck(:id)).to match_array [@a1, @a2].map(&:id)
-    end
-
-    it "excludes deleted files" do
-      @a1.destroy
-      expect(@student.submittable_attachments.pluck(:id)).to eq [@a2.id]
-    end
-
-    it "excludes deleted group memberships" do
-      @student.group_memberships.where(group_id: @group.id).take.destroy
-      expect(@student.submittable_attachments.pluck(:id)).to eq [@a1.id]
     end
   end
 

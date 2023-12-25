@@ -16,10 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import {configureScope, init, BrowserTracing} from '@sentry/react'
+import type {Integration} from '@sentry/types'
 import SentryFullStory from '@sentry/fullstory'
-import {configureScope, init} from '@sentry/react'
-import {Integration} from '@sentry/types'
-import {BrowserTracing} from '@sentry/tracing'
 
 export function initSentry() {
   const sentrySettings = ENV.SENTRY_FRONTEND

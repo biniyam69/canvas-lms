@@ -2509,7 +2509,6 @@ class Course < ActiveRecord::Base
          opts[:temporary_enrollment_pairing_id]
         source_user_id = opts[:temporary_enrollment_source_user_id]
         pairing_id = opts[:temporary_enrollment_pairing_id]
-        scope = scope.where(temporary_enrollment_source_user_id: source_user_id, temporary_enrollment_pairing_id: pairing_id)
       end
       e = if opts[:allow_multiple_enrollments]
             scope.where(course_section_id: section.id).first
@@ -3636,11 +3635,11 @@ class Course < ActiveRecord::Base
         end
       end
     RUBY
-    alias_method "#{setting}?", setting if opts[:boolean]
+    alias_method :"#{setting}?", setting if opts[:boolean]
     if opts[:alias]
       alias_method opts[:alias], setting
-      alias_method "#{opts[:alias]}=", "#{setting}="
-      alias_method "#{opts[:alias]}?", "#{setting}?"
+      alias_method :"#{opts[:alias]}=", "#{setting}="
+      alias_method :"#{opts[:alias]}?", "#{setting}?"
     end
   end
 
@@ -4411,12 +4410,12 @@ class Course < ActiveRecord::Base
       case event.to_s
       when "publish"
         context_module.publish unless context_module.active?
-        unless Account.site_admin.feature_enabled?(:module_publish_menu) && skip_content_tags
+        unless skip_content_tags
           context_module.publish_items!(progress:)
         end
       when "unpublish"
         context_module.unpublish unless context_module.unpublished?
-        if Account.site_admin.feature_enabled?(:module_publish_menu) && !skip_content_tags
+        unless skip_content_tags
           context_module.unpublish_items!(progress:)
         end
       when "delete"
@@ -4465,7 +4464,7 @@ class Course < ActiveRecord::Base
   end
 
   def set_restrict_quantitative_data_when_needed
-    if account.feature_enabled?(:restrict_quantitative_data) &&
+    if root_account.feature_enabled?(:restrict_quantitative_data) &&
        account.restrict_quantitative_data[:value] == true &&
        account.restrict_quantitative_data[:locked] == true
       self.restrict_quantitative_data = true

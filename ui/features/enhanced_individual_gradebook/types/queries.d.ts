@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {GradingType, WorkflowState} from '../../../api'
+import type {GradingType, WorkflowState} from '../../../api.d'
 
 export type UserConnection = {
   enrollments: {
@@ -95,6 +95,7 @@ export type SubmissionConnection = {
   submittedAt: Date | null
   userId: string
   gradingPeriodId?: string
+  excused?: boolean
 }
 
 export type Attachment = {

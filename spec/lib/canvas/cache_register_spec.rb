@@ -361,13 +361,13 @@ describe Canvas::CacheRegister do
       end
     end
 
-    it "returns nil if cache register is disabled" do
+    it "returns a key for 'now' if cache register is disabled" do
       set_revert!
       Timecop.freeze(time1) do
         @user.cache_key(:enrollments)
       end
       Timecop.freeze(time2) do
-        expect(User.cache_key_for_id(@user.id, :enrollments)).to be_nil
+        expect(User.cache_key_for_id(@user.id, :enrollments)).to include(to_stamp(time2))
       end
     end
 
@@ -423,7 +423,7 @@ describe Canvas::CacheRegister do
     end
 
     it "uses multi-cache delete when clearing a configured key" do
-      key = Account.base_cache_register_key_for(Account.default) + "/feature_flags"
+      key = "{#{Account.base_cache_register_key_for(Account.default)}}/feature_flags"
       allow(Canvas::CacheRegister).to receive(:can_use_multi_cache_redis?).and_return(true)
       expect(Canvas::CacheRegister).to_not receive(:redis)
       expect(MultiCache).to receive(:delete).with(key, { unprefixed_key: true })

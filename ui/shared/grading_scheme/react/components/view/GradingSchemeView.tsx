@@ -25,18 +25,17 @@ import {Table} from '@instructure/ui-table'
 import {IconEditLine, IconTrashLine} from '@instructure/ui-icons'
 import {IconButton} from '@instructure/ui-buttons'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
-import {RadioInputGroup, RadioInput} from '@instructure/ui-radio-input'
 
 import {calculateHighRangeForDataRow} from '../../helpers/calculateHighRangeForDataRow'
 import {GradingSchemeDataRowView} from './GradingSchemeDataRowView'
 import {Heading} from '@instructure/ui-heading'
-import {GradingScheme} from '@canvas/grading-scheme'
+import type {GradingScheme} from '../../../index'
 
 const I18n = useI18nScope('GradingSchemes')
 
 interface ComponentProps {
   gradingScheme: GradingScheme
-  pointsBasedGradingSchemesEnabled: boolean
+  archivedGradingSchemesEnabled: boolean
   disableEdit: boolean
   disableDelete: boolean
   onEditRequested?: () => any
@@ -45,7 +44,7 @@ interface ComponentProps {
 
 export const GradingSchemeView: React.FC<ComponentProps> = ({
   gradingScheme,
-  pointsBasedGradingSchemesEnabled,
+  archivedGradingSchemesEnabled,
   disableEdit = false,
   disableDelete = false,
   onEditRequested,
@@ -54,58 +53,68 @@ export const GradingSchemeView: React.FC<ComponentProps> = ({
   return (
     <View
       as="div"
-      margin="none none none x-large"
+      margin={archivedGradingSchemesEnabled ? 'none none none xxx-small' : 'none none none x-large'}
       data-testid={`grading_scheme_${gradingScheme.id}`}
     >
-      <Flex>
-        <Flex.Item shouldGrow={true} shouldShrink={true} padding="none medium none none">
-          <Heading level="h3" margin="0 0 x-small">
-            <ScreenReaderContent>{I18n.t('Grading scheme title')}</ScreenReaderContent>
-            {gradingScheme.title}
-          </Heading>
-        </Flex.Item>
-        <Flex.Item>
-          <IconButton
-            onClick={onEditRequested}
-            margin="none x-small none none"
-            screenReaderLabel={I18n.t('Edit grading scheme')}
-            data-testid={`grading_scheme_${gradingScheme.id}_edit_button`}
-            disabled={disableEdit}
-            withBorder={false}
-            withBackground={false}
-          >
-            <IconEditLine />
-          </IconButton>
-
-          <IconButton
-            onClick={onDeleteRequested}
-            screenReaderLabel={I18n.t('Delete grading scheme')}
-            data-testid={`grading_scheme_${gradingScheme.id}_delete_button`}
-            disabled={disableDelete}
-            withBackground={false}
-            withBorder={false}
-          >
-            <IconTrashLine />
-          </IconButton>
-        </Flex.Item>
-      </Flex>
-      <View>
-        {pointsBasedGradingSchemesEnabled ? (
-          <View as="div" padding="none none small none" withVisualDebug={false}>
-            <RadioInputGroup
-              layout="columns"
-              name={`points_based_${gradingScheme.id}`}
-              defaultValue={String(gradingScheme.points_based)}
-              description={I18n.t('Grade by')}
-              disabled={true}
+      {archivedGradingSchemesEnabled ? (
+        <></>
+      ) : (
+        <Flex>
+          <Flex.Item shouldGrow={true} shouldShrink={true} padding="none medium none none">
+            <Heading level="h3" margin="0 0 x-small">
+              <ScreenReaderContent>{I18n.t('Grading scheme title')}</ScreenReaderContent>
+              {gradingScheme.title}
+            </Heading>
+          </Flex.Item>
+          <Flex.Item>
+            <IconButton
+              onClick={onEditRequested}
+              margin="none x-small none none"
+              screenReaderLabel={I18n.t('Edit grading scheme')}
+              data-testid={`grading_scheme_${gradingScheme.id}_edit_button`}
+              disabled={disableEdit}
+              withBorder={false}
+              withBackground={false}
             >
-              <RadioInput value="false" label={I18n.t('Percentage')} />
-              <RadioInput value="true" label={I18n.t('Points')} />
-            </RadioInputGroup>
-          </View>
-        ) : (
-          <></>
-        )}
+              <IconEditLine />
+            </IconButton>
+
+            <IconButton
+              onClick={onDeleteRequested}
+              screenReaderLabel={I18n.t('Delete grading scheme')}
+              data-testid={`grading_scheme_${gradingScheme.id}_delete_button`}
+              disabled={disableDelete}
+              withBackground={false}
+              withBorder={false}
+            >
+              <IconTrashLine />
+            </IconButton>
+          </Flex.Item>
+        </Flex>
+      )}
+      <View>
+        <View as="div" padding="none none small none" withVisualDebug={false}>
+          <Flex justifyItems="space-between" alignItems="start">
+            <Flex.Item>
+              <Heading level="h4" margin="0 0 x-small">
+                {I18n.t('Grade By')}
+              </Heading>
+              {gradingScheme.points_based ? I18n.t('Points') : I18n.t('Percentage')}
+            </Flex.Item>
+            {archivedGradingSchemesEnabled && gradingScheme.id !== '' ? (
+              <Flex.Item>
+                <IconButton
+                  screenReaderLabel={I18n.t('Edit Grading Scheme')}
+                  onClick={onEditRequested}
+                >
+                  <IconEditLine />
+                </IconButton>
+              </Flex.Item>
+            ) : (
+              <></>
+            )}
+          </Flex>
+        </View>
       </View>
       <Flex>
         <Flex.Item>
@@ -118,10 +127,15 @@ export const GradingSchemeView: React.FC<ComponentProps> = ({
           >
             <Table.Head>
               <Table.Row themeOverride={{borderColor: 'transparent'}}>
-                <Table.ColHeader themeOverride={{padding: 'none'}} id="1" width="30%">
+                <Table.ColHeader themeOverride={{padding: '0.5rem 0'}} id="1" width="30%">
                   {I18n.t('Letter Grade')}
                 </Table.ColHeader>
-                <Table.ColHeader themeOverride={{padding: 'none'}} id="2" width="70%" colSpan={2}>
+                <Table.ColHeader
+                  themeOverride={{padding: '0.5rem 0'}}
+                  id="2"
+                  width="70%"
+                  colSpan={2}
+                >
                   {I18n.t('Range')}
                 </Table.ColHeader>
               </Table.Row>
@@ -133,9 +147,7 @@ export const GradingSchemeView: React.FC<ComponentProps> = ({
                   dataRow={dataRow}
                   highRange={calculateHighRangeForDataRow(idx, array)}
                   isFirstRow={idx === 0}
-                  schemeScaleFactor={
-                    pointsBasedGradingSchemesEnabled ? gradingScheme.scaling_factor : 1.0
-                  }
+                  schemeScaleFactor={gradingScheme.scaling_factor}
                   viewAsPercentage={!gradingScheme.points_based}
                 />
               ))}

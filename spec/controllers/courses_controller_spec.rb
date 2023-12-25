@@ -263,6 +263,35 @@ describe CoursesController do
           expect(assigns[:current_enrollments].map(&:course_id)).to eq [course2.id, course1.id]
         end
       end
+
+      context "as enrollment admin" do
+        it "includes courses with no applicable start/end dates" do
+          # no dates at all
+          enrollment1 = teacher_in_course active_all: true, course_name: "A"
+
+          course2 = Account.default.courses.create! start_at: 2.weeks.ago,
+                                                    conclude_at: 1.week.from_now,
+                                                    restrict_enrollments_to_course_dates: false,
+                                                    name: "B"
+          course2.offer!
+          enrollment2 = teacher_in_course user: @teacher, course: course2, active_all: true
+
+          # future date that doesn't count
+          course3 = Account.default.courses.create! start_at: 1.week.from_now,
+                                                    conclude_at: 2.weeks.from_now,
+                                                    restrict_enrollments_to_course_dates: false,
+                                                    name: "C"
+          course3.offer!
+          enrollment3 = teacher_in_course user: @teacher, course: course3, active_all: true
+
+          user_session(@teacher)
+          get_index
+          expect(response).to be_successful
+          expect(assigns[:past_enrollments]).to be_empty
+          expect(assigns[:current_enrollments]).to eq [enrollment1, enrollment2, enrollment3]
+          expect(assigns[:future_enrollments]).to be_empty
+        end
+      end
     end
 
     describe "past_enrollments" do
@@ -748,7 +777,8 @@ describe CoursesController do
   describe "observer_pairing_codes" do
     before :once do
       course_with_teacher(active_all: true)
-      student_in_course(course: @course, active_all: true)
+      student = user_with_pseudonym(name: "Bob Jones", sis_user_id: "bobjones1")
+      student_in_course(course: @course, user: student, active_all: true)
       @teacher.name = "teacher"
       @teacher.save!
     end
@@ -777,8 +807,10 @@ describe CoursesController do
       get :observer_pairing_codes_csv, params: { course_id: @course.id }
       expect(response).to be_successful
       expect(response.header["Content-Type"]).to eql("text/csv")
-      expect(response.body.split(",").last.strip).to eql(ObserverPairingCode.last.expires_at.to_s)
-      expect(response.body.split(",")[-2]).to include(ObserverPairingCode.last.code)
+      headings = response.body.split("\n").first.split(",")
+      row = response.body.split("\n").second.split(",")
+      expect(headings).to eq(["Last Name", "First Name", "SIS ID", "Pairing Code", "Expires At"])
+      expect(row).to eq(["Jones", "Bob", "bobjones1", "\"=\"\"#{ObserverPairingCode.last.code}\"\"\"", ObserverPairingCode.last.expires_at.to_s])
     end
 
     it "generates observer pairing codes only for students" do
@@ -788,7 +820,7 @@ describe CoursesController do
       get :observer_pairing_codes_csv, params: { course_id: @course.id }
       expect(response).to be_successful
       expect(response.header["Content-Type"]).to eql("text/csv")
-      expect(response.body).to include(@student.name)
+      expect(response.body).to include(@student.first_name)
       expect(response.body.include?(@teacher.name)).to be_falsey
       expect(response.body.split(",").last.strip).to eql(ObserverPairingCode.last.expires_at.to_s)
       expect(response.body.split(",")[-2]).to include(ObserverPairingCode.last.code)

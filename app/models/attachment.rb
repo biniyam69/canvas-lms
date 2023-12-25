@@ -75,6 +75,8 @@ class Attachment < ActiveRecord::Base
   VALID_CATEGORIES = [ICON_MAKER_ICONS, UNCATEGORIZED].freeze
   VALID_VISIBILITIES = %w[inherit context institution public].freeze
 
+  NO_PREFIX_CONTEXT_TYPES = [ContentExport].freeze
+
   NOTIFICATION_MAX_DISPLAY = 20
 
   include HasContentTags
@@ -136,6 +138,8 @@ class Attachment < ActiveRecord::Base
   has_many :canvadocs_annotation_contexts, inverse_of: :attachment
   has_many :discussion_entry_drafts, inverse_of: :attachment
   has_one :master_content_tag, class_name: "MasterCourses::MasterContentTag", inverse_of: :attachment
+  has_many :assignment_overrides, dependent: :destroy, inverse_of: :attachment
+  has_many :assignment_override_students, dependent: :destroy
 
   before_save :set_root_account_id
   before_save :infer_display_name
@@ -412,8 +416,7 @@ class Attachment < ActiveRecord::Base
       elsif (existing_attachment = dup.find_existing_attachment_for_md5)
         dup.root_attachment = existing_attachment
       else
-        dup.write_attribute(:filename, filename)
-        Attachments::Storage.store_for_attachment(dup, self.open)
+        copy_attachment_content(dup)
       end
     end
     dup.write_attribute(:filename, filename) unless dup.read_attribute(:filename) || dup.root_attachment_id?
@@ -585,7 +588,7 @@ class Attachment < ActiveRecord::Base
     self.folder_id ||= Folder.root_folders(context).first.id rescue nil
     if root_attachment && new_record?
       %i[md5 size content_type].each do |key|
-        send("#{key}=", root_attachment.send(key))
+        send(:"#{key}=", root_attachment.send(key))
       end
       self.workflow_state = "processed"
       write_attribute(:filename, root_attachment.filename)
@@ -726,7 +729,7 @@ class Attachment < ActiveRecord::Base
         { "key" => sanitized_filename },
         { "acl" => "private" },
         ["starts-with", "$Filename", ""],
-        ["content-length-range", 1, (options[:max_size] || CONTENT_LENGTH_RANGE)]
+        ["content-length-range", 1, options[:max_size] || CONTENT_LENGTH_RANGE]
       ]
     }
 
@@ -1004,7 +1007,16 @@ class Attachment < ActiveRecord::Base
   end
 
   def local_storage_path
-    "#{HostUrl.context_host(context)}/#{context_type.underscore.pluralize}/#{context_id}/files/#{id}/download?verifier=#{uuid}"
+    "#{HostUrl.context_host(context)}#{context_path_prefix_for(context:)}/files/#{id}/download?verifier=#{uuid}"
+  end
+
+  def context_path_prefix_for(context:)
+    # Some context types (like ContentExport) don't have a Canvas route
+    # that includes the "context prefix" (e.g. "/content_exports/1/files/...").
+    # In those cases, use the base files path rather than a context prefix.
+    return if NO_PREFIX_CONTEXT_TYPES.include? context.class
+
+    "/#{context.class.to_s.underscore.pluralize}/#{context.id}"
   end
 
   def content_type_with_encoding
@@ -1911,34 +1923,54 @@ class Attachment < ActiveRecord::Base
     raise "must be a child" unless child.root_attachment_id == id
 
     child.root_attachment_id = nil
-    copy_attachment_content(child)
+    copy_attachment_content(child, split_root_attachment: true)
+    child.save!
     Attachment.where(root_attachment_id: self).where.not(id: child).update_all(root_attachment_id: child.id)
   end
 
-  def copy_attachment_content(destination)
+  private def service_side_clone(destination)
+    return false unless shard.region == destination.shard.region
+
+    if Attachment.s3_storage? && filename && s3object.exists?
+      if destination.new_record? # the attachment id is part of the s3 object name
+        destination.content_type ||= content_type # needed for the validation
+        destination.save_without_broadcasting!
+      end
+      s3object.copy_to(destination.s3object) unless destination.s3object.exists?
+      destination.run_after_attachment_saved
+      true
+    elsif instfs_hosted?
+      destination.instfs_uuid = InstFS.duplicate_file(instfs_uuid)
+      true
+    else
+      false
+    end
+  end
+
+  def copy_attachment_content(destination, split_root_attachment: false)
     # parent is broken; if child is probably broken too, make sure it gets marked as broken
     if file_state == "broken" && destination.md5.nil?
       Attachment.where(id: destination).update_all(file_state: "broken")
       return
     end
-
     destination.write_attribute(:filename, filename) if filename
-    if Attachment.s3_storage?
-      if filename && s3object.exists? && !destination.s3object.exists?
-        s3object.copy_to(destination.s3object)
-      end
+    if service_side_clone(destination)
+      destination.content_type ||= content_type
+      destination.size = size
+      destination.md5 = md5
+      destination.workflow_state = "processed"
     else
-      old_content_type = self.content_type
-      scope = Attachment.where(md5:, namespace:, root_attachment_id: nil)
-      scope.update_all(content_type: "invalid/invalid") # prevents find_existing_attachment_for_md5 from reattaching the child to the old root
-
-      # TODO: when RECNVS-323 is complete, branch here to call an inst-fs
-      # copy method to avoid sending object when it is not necessary
-      Attachments::Storage.store_for_attachment(destination, open)
-
-      scope.where.not(id: destination).update_all(content_type: old_content_type)
+      begin
+        if split_root_attachment
+          old_content_type = self.content_type
+          scope = Attachment.where(md5:, namespace:, root_attachment_id: nil)
+          scope.update_all(content_type: "invalid/invalid") # prevents find_existing_attachment_for_md5 from reattaching the child to the old root
+        end
+        Attachments::Storage.store_for_attachment(destination, open)
+      ensure
+        scope.where.not(id: destination).update_all(content_type: old_content_type) if split_root_attachment
+      end
     end
-    destination.save!
   end
 
   def make_rootless
@@ -1948,8 +1980,8 @@ class Attachment < ActiveRecord::Base
     return unless root
 
     self.root_attachment_id = nil
-    root.copy_attachment_content(self)
-    run_after_attachment_saved
+    root.copy_attachment_content(self, split_root_attachment: true)
+    save!
   end
 
   def restore
@@ -2486,8 +2518,7 @@ class Attachment < ActiveRecord::Base
                               if (existing_attachment = new_attachment.find_existing_attachment_for_md5)
                                 new_attachment.root_attachment = existing_attachment
                               else
-                                new_attachment.filename = attachment.filename
-                                Attachments::Storage.store_for_attachment(new_attachment, attachment.open)
+                                attachment.copy_attachment_content(new_attachment)
                               end
                               new_attachment
                             end

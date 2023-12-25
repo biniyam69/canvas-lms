@@ -20,12 +20,12 @@ import React from 'react'
 import {render, screen} from '@testing-library/react'
 import '@testing-library/jest-dom'
 import {TempEnrollAvatar} from '../TempEnrollAvatar'
-import {User} from '../types'
+import type {User} from '../types'
 
 const mockUser: User = {
   id: '1',
   name: 'John Doe',
-  avatar_url: 'http://example.com/avatar.jpg',
+  avatar_url: 'https://example.com/avatar.jpg',
 }
 
 const props = {

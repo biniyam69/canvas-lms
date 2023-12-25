@@ -21,7 +21,7 @@ import type JQuery from 'jquery'
 import deferPromise from '@instructure/defer-promise'
 import _ from '@instructure/lodash-underscore'
 import {intersection, isEqual, map, pick} from 'lodash'
-import tz from '@canvas/timezone'
+import * as tz from '@canvas/datetime'
 import React, {Suspense} from 'react'
 import ReactDOM from 'react-dom'
 import GenericErrorPage from '@canvas/generic-error-page'
@@ -168,7 +168,7 @@ import MultiSelectSearchInput from './components/MultiSelectSearchInput'
 import ApplyScoreToUngradedModal from './components/ApplyScoreToUngradedModal'
 import ScoreToUngradedManager from '../shared/ScoreToUngradedManager'
 import '@canvas/jquery/jquery.ajaxJSON'
-import '@canvas/datetime'
+import '@canvas/datetime/jquery'
 import 'jqueryui/dialog'
 import 'jqueryui/tooltip'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
@@ -188,6 +188,7 @@ import {
   escapeStudentContent,
   filterAssignmentsBySubmissionsFn,
   filterStudentBySubmissionFn,
+  filterStudentBySectionFn,
   findFilterValuesOfType,
   findSubmissionFilterValue,
   forEachSubmission,
@@ -241,8 +242,8 @@ import {ExportProgressBar} from './components/ExportProgressBar'
 import {ProgressBar} from '@instructure/ui-progress'
 import GradebookExportManager from '../shared/GradebookExportManager'
 import {handleExternalContentMessages} from '@canvas/external-tools/messages'
-import {EnvGradebookCommon} from '@canvas/global/env/EnvGradebook'
-import {GlobalEnv} from '@canvas/global/env/GlobalEnv'
+import type {EnvGradebookCommon} from '@canvas/global/env/EnvGradebook'
+import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 import {TotalGradeOverrideTrayProvider} from './components/TotalGradeOverrideTray'
 
 const I18n = useI18nScope('gradebook')
@@ -763,6 +764,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       group.assignments = group.assignments || [] // perhaps unnecessary
       assignmentGroup.assignments.forEach(assignment => {
         assignment.assignment_group = group
+        // @ts-expect-error
         assignment.due_at = tz.parse(assignment.due_at)
         this.updateAssignmentEffectiveDueDates(assignment)
         this.addAssignmentColumnDefinition(assignment)
@@ -1168,6 +1170,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       return true
     }
     return Object.values(assignment.effectiveDueDates || {}).some(
+      // @ts-expect-error
       (effectiveDueDateObject: DueDate) => tz.parse(effectiveDueDateObject.due_at) >= tz.parse(date)
     )
   }
@@ -1180,6 +1183,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
     return Object.keys(assignment.effectiveDueDates || {}).some(
       (assignmentId: string) =>
         assignment.effectiveDueDates &&
+        // @ts-expect-error
         tz.parse(assignment.effectiveDueDates[assignmentId].due_at) <= tz.parse(date)
     )
   }
@@ -1220,16 +1224,16 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       return students.filter(student => this.searchFilteredStudentIds.includes(student.id))
     }
 
-    const filteredStudents = students.filter(
-      filterStudentBySubmissionFn(
-        this.props.appliedFilters,
-        this.submissionStateMap,
-        this.filteredAssignmentIds,
-        this.options.custom_grade_statuses_enabled ? this.options.custom_grade_statuses : []
+    return students
+      .filter(
+        filterStudentBySubmissionFn(
+          this.props.appliedFilters,
+          this.submissionStateMap,
+          this.filteredAssignmentIds,
+          this.options.custom_grade_statuses_enabled ? this.options.custom_grade_statuses : []
+        )
       )
-    )
-
-    return filteredStudents
+      .filter(filterStudentBySectionFn(this.props.appliedFilters))
   }
 
   updateFilteredStudentIds = () => {
@@ -1578,10 +1582,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
     if (currentSection !== sectionId) {
       this.setFilterRowsBySetting('sectionId', sectionId)
       this.props.postGradesStore.setSelectedSection(sectionId)
-      return this.saveSettings({}).then(() => {
-        this.updateSectionFilterVisibility()
-        return this.props.reloadStudentData()
-      })
+      this.saveSettings()
     }
   }
 
@@ -1820,13 +1821,16 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       true
     )
     this.renderGradebookSettingsModal()
-    return $('#keyboard-shortcuts').click(function () {
-      const questionMarkKeyDown = $.Event('keydown', {
-        keyCode: 191,
-        shiftKey: true,
+    // EVAL-3711 Remove Evaluate ICE feature flag
+    if (!window.ENV.FEATURES.instui_nav) {
+      return $('#keyboard-shortcuts').click(function () {
+        const questionMarkKeyDown = $.Event('keydown', {
+          keyCode: 191,
+          shiftKey: true,
+        })
+        return $(document).trigger(questionMarkKeyDown)
       })
-      return $(document).trigger(questionMarkKeyDown)
-    })
+    }
   }
 
   renderGradebookMenus = () => {
@@ -3530,7 +3534,9 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       editedCommentId,
       proxySubmissionsAllowed: ENV.GRADEBOOK_OPTIONS.proxy_submissions_allowed,
       reloadSubmission: proxyDetails => this.reloadSubmission(submission, student, proxyDetails),
-      customGradeStatuses: this.options.custom_grade_statuses,
+      customGradeStatuses: this.options.custom_grade_statuses?.filter(
+        status => status.applies_to_submissions
+      ),
       customGradeStatusesEnabled: this.options.custom_grade_statuses_enabled,
     }
   }
@@ -4215,8 +4221,6 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
   // # Course Settings Access Methods
   getCourseGradingScheme = (): DeprecatedGradingScheme | null =>
     this.courseContent.courseGradingScheme
-
-  pointsBasedGradingSchemesFeatureEnabled = () => !!ENV.POINTS_BASED_GRADING_SCHEMES_ENABLED
 
   getDefaultGradingScheme = () => this.courseContent.defaultGradingScheme
 
@@ -5177,7 +5181,6 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
               this.gradebookGrid?.grid?.navigateUp()
               this.gradebookGrid?.gridSupport?.helper.commitCurrentEdit()
             }}
-            pointsBasedGradingSchemesFeatureEnabled={!!ENV.POINTS_BASED_GRADING_SCHEMES_ENABLED}
             selectedGradingPeriodId={this.gradingPeriodId}
           />
         )}

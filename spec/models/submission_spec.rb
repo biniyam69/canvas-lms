@@ -3263,7 +3263,6 @@ describe Submission do
         setup_account_for_turnitin(@assignment.context.account)
         @assignment.submission_types = "online_upload,online_text_entry"
         @assignment.turnitin_enabled = true
-        @assignment.turnitin_settings = @assignment.turnitin_settings
         @assignment.save!
         @submission = @assignment.submit_homework(@user, { body: "hello there", submission_type: "online_text_entry" })
       end
@@ -3410,7 +3409,7 @@ describe Submission do
       before :once do
         @assignment.submission_types = "online_upload,online_text_entry"
         @assignment.turnitin_enabled = true
-        @assignment.turnitin_settings = @assignment.turnitin_settings
+        @assignment.turnitin_settings = @assignment.turnitin_settings # rubocop:disable Lint/SelfAssignment
         @assignment.save!
         @submission = @assignment.submit_homework(@user, { body: "hello there", submission_type: "online_text_entry" })
         @submission.turnitin_data = {
@@ -6603,6 +6602,12 @@ describe Submission do
       expect(comment.attempt).to eq 3
     end
 
+    it "sets the attempt to latest submission attempt when an attempt option is not specified" do
+      @submission.update!(attempt: 5, workflow_state: "graded")
+      comment = @submission.add_comment(author: @teacher, comment: "42")
+      expect(comment.attempt).to eq 5
+    end
+
     it "sets comment hidden to false if comment causes posting" do
       @assignment.ensure_post_policy(post_manually: false)
       @assignment.grade_student(@student, grader: @teacher, score: 5)
@@ -9183,9 +9188,9 @@ describe Submission do
   describe "checkpoint submissions" do
     before(:once) do
       course = course_model
+      student = student_in_course(course:, active_all: true).user
       course.root_account.enable_feature!(:discussion_checkpoints)
-      student = student_in_course(course: @course, active_all: true).user
-      topic = @course.discussion_topics.create!(title: "graded topic")
+      topic = DiscussionTopic.create_graded_topic!(course:, title: "graded topic")
       topic.create_checkpoints(reply_to_topic_points: 3, reply_to_entry_points: 7)
       @checkpoint_submission = topic.reply_to_topic_checkpoint.submissions.find_by(user: student)
       @parent_submission = topic.assignment.submissions.find_by(user: student)

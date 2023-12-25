@@ -16,10 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
+import React, {useEffect} from 'react'
 import {Outlet, useMatch, useNavigate} from 'react-router-dom'
 import {SVGIcon} from '@instructure/ui-svg-images'
-import {IconAlertsLine} from '@instructure/ui-icons'
 import {Flex} from '@instructure/ui-flex'
 import {Portal} from '@instructure/ui-portal'
 import {View} from '@instructure/ui-view'
@@ -49,15 +48,28 @@ const inactiveStyle = {
 export const Component = () => {
   const navigate = useNavigate()
   const pathMatch = useMatch('/users/:userId/:tabPath/*')
-  const selectedTab = pathMatch?.params?.['*']
+  const selectedTab = pathMatch?.params?.['*']?.split('/')[0] || 'achievements'
 
-  const mountPoint: HTMLElement | null = document.querySelector('#content')
-  if (!mountPoint) {
-    return null
-  }
+  useEffect(() => {
+    // canvas limits the width of the content area. For learner passport, let's not.
+    document.body.classList.add('learner-passport')
+    const s = document.createElement('style')
+    s.textContent = `
+      body:not(.full-width):not(.outcomes):not(.body--login-confirmation).learner-passport .ic-Layout-wrapper {
+        max-width: 100%;
+      }
+    `
+    document.head.appendChild(s)
+  }, [])
 
   const handleTabChange = (tabname: string) => {
-    navigate(`../${tabname}`, {relative: 'path'})
+    if (tabname === 'portfolios') {
+      navigate('portfolios/dashboard')
+    } else if (tabname === 'projects') {
+      navigate('projects/dashboard')
+    } else {
+      navigate(tabname)
+    }
   }
 
   const handleTabClick = (event: React.MouseEvent) => {
@@ -72,10 +84,15 @@ export const Component = () => {
     }
   }
 
+  const mountPoint: HTMLElement | null = document.querySelector('#content')
+  if (!mountPoint) {
+    return null
+  }
+
   return (
     <Portal open={true} mountNode={mountPoint}>
-      <div style={{marginInlineStart: '-24px'}}>
-        <View as="div" background="secondary" padding="small medium">
+      <div style={{margin: '-36px -48px -48px -48px'}}>
+        <View as="div" background="secondary" padding="small medium" borderWidth="0 0 small 0">
           <Flex>
             <div style={{color: 'var(--ic-brand-primary)'}}>
               <SVGIcon src={passportSvg} inline={true} size="small" title="Learner Passport" />
@@ -114,28 +131,13 @@ export const Component = () => {
                 </div>
               </div>
             </Flex.Item>
-            <Flex.Item>
-              <IconAlertsLine size="x-small" />
-            </Flex.Item>
-            <Flex.Item>
-              <div
-                style={{
-                  margin: '0 0 0 .75rem',
-                  padding: '0 0 0 .75rem',
-                  borderWidth: '0 0 0 1px',
-                  borderStyle: 'solid',
-                  borderColor: 'var(--ic-brand-border)',
-                }}
-              >
-                {window.ENV.current_user.display_name}
-              </div>
-            </Flex.Item>
+            <Flex.Item>{window.ENV.current_user.display_name}</Flex.Item>
           </Flex>
         </View>
+        <View id="foo" as="div" margin="large x-large 0">
+          <Outlet />
+        </View>
       </div>
-      <View as="div" margin="medium x-large 0">
-        <Outlet />
-      </View>
     </Portal>
   )
 }

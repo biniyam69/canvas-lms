@@ -28,19 +28,19 @@ import parseLinkHeader from '../helpers/xhr/parse_link_header'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import Ember from 'ember'
 import _ from 'underscore'
-import tz from '@canvas/timezone'
+import * as tz from '@canvas/datetime'
 import AssignmentDetailsDialog from '../../jquery/AssignmentDetailsDialog'
 import CourseGradeCalculator from '@canvas/grading/CourseGradeCalculator'
 import {updateWithSubmissions, scopeToUser} from '@canvas/grading/EffectiveDueDates'
 import outcomeGrid from '@canvas/outcome-gradebook-grid'
-import CalculationMethodContent from '@canvas/grade-summary/backbone/models/CalculationMethodContent'
+import CalculationMethodContent from '@canvas/grading/CalculationMethodContent'
 import SubmissionStateMap from '@canvas/grading/SubmissionStateMap'
 import GradeOverrideEntry from '@canvas/grading/GradeEntry/GradeOverrideEntry'
 import GradingPeriodsApi from '@canvas/grading/jquery/gradingPeriodsApi'
 import GradingPeriodSetsApi from '@canvas/grading/jquery/gradingPeriodSetsApi'
 import ProxyUploadModal from '@canvas/proxy-submission/react/ProxyUploadModal'
 import {updateFinalGradeOverride} from '@canvas/grading/FinalGradeOverrideApi'
-import '@canvas/datetime'
+import '@canvas/datetime/jquery'
 import 'jquery-tinypubsub'
 
 import '../components/ic_submission_download_dialog_component'
@@ -1167,7 +1167,7 @@ const ScreenreaderGradebookController = Ember.ObjectController.extend({
     const map = new SubmissionStateMap({
       hasGradingPeriods: !!this.has_grading_periods,
       selectedGradingPeriodID: this.get('selectedGradingPeriod.id') || '0',
-      isAdmin: ENV.current_user_roles && _.includes(ENV.current_user_roles, 'admin'),
+      isAdmin: ENV.current_user_is_admin,
     })
     map.setup(this.get('students').toArray(), this.get('assignmentsFromGroups.content').toArray())
     this.set('submissionStateMap', map)
@@ -1359,7 +1359,7 @@ const ScreenreaderGradebookController = Ember.ObjectController.extend({
 
     // Calculate whether the current user is able to grade assignments given their role and the
     // result of the calculations above
-    if (ENV.current_user_roles != null && _.includes(ENV.current_user_roles, 'admin')) {
+    if (ENV.current_user_is_admin) {
       this.set('disableAssignmentGrading', false)
     } else {
       this.set('disableAssignmentGrading', assignment.inClosedGradingPeriod)

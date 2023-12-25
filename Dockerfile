@@ -44,6 +44,7 @@ RUN mkdir -p /etc/apt/keyrings \
   && printf 'path-exclude /usr/share/doc/*\npath-exclude /usr/share/man/*' > /etc/dpkg/dpkg.cfg.d/01_nodoc \
   && echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
   && curl -sS https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+  && add-apt-repository ppa:git-core/ppa -ny \
   && apt-get update -qq \
   && apt-get install -qqy --no-install-recommends \
        nodejs \
@@ -77,8 +78,6 @@ RUN set -eux; \
     config/locales/generated \
     log \
     node_modules \
-    packages/canvas-planner/node_modules \
-    packages/jest-moxios-utils/node_modules \
     packages/js-utils/es \
     packages/js-utils/lib \
     packages/js-utils/node_modules \

@@ -122,7 +122,7 @@ module Lti
       end
 
       it "removes the requested expansion" do
-        expect(subject).not_to include("$#{expansion}".to_sym)
+        expect(subject).not_to include(:"$#{expansion}")
       end
     end
 
@@ -1337,6 +1337,44 @@ module Lti
           end
         end
 
+        describe "$com.instructure.instui_nav" do
+          subject do
+            variable_expander.expand_variables!({ test: "$com.instructure.instui_nav" })[:test]
+          end
+
+          context "internal tool" do
+            before { allow(tool).to receive(:internal_service?).with(any_args).and_return(true) }
+
+            context "release flag instui_nav is true" do
+              before { root_account.enable_feature!(:instui_nav) }
+
+              it { is_expected.to be true }
+            end
+
+            context "release flag instui_nav is false" do
+              before { root_account.disable_feature!(:instui_nav) }
+
+              it { is_expected.to be false }
+            end
+          end
+
+          context "not internal tool" do
+            before { allow(tool).to receive(:internal_service?).with(any_args).and_return(false) }
+
+            context "release flag instui_nav is true" do
+              before { root_account.enable_feature!(:instui_nav) }
+
+              it { is_expected.to eq "$com.instructure.instui_nav" }
+            end
+
+            context "release flag instui_nav is false" do
+              before { root_account.disable_feature!(:instui_nav) }
+
+              it { is_expected.to eq "$com.instructure.instui_nav" }
+            end
+          end
+        end
+
         describe "$com.instructure.RCS.app_host" do
           subject do
             exp_hash = { test: "$com.instructure.RCS.app_host" }
@@ -1876,6 +1914,39 @@ module Lti
             exp_hash = { test: "$ResourceLink.submission.endDateTime" }
             variable_expander.expand_variables!(exp_hash)
             expect(exp_hash[:test]).to eq "$ResourceLink.submission.endDateTime"
+          end
+        end
+
+        context "when ResourceLink.title is populated" do
+          let(:resource_link_title) { "Tool Title" }
+
+          let(:resource_link) do
+            Lti::ResourceLink.new(
+              resource_link_uuid: SecureRandom.uuid,
+              context_external_tool_id: tool.id,
+              workflow_state: "active",
+              root_account_id: course.root_account.id,
+              context_id: course.id,
+              context_type: "Course",
+              custom: {},
+              lookup_uuid: SecureRandom.uuid,
+              title: resource_link_title
+            )
+          end
+
+          let(:variable_expander) do
+            VariableExpander.new(
+              root_account,
+              course,
+              controller,
+              resource_link:
+            )
+          end
+
+          it "has substitution for $ResourceLink.title" do
+            exp_hash = { test: "$ResourceLink.title" }
+            variable_expander.expand_variables!(exp_hash)
+            expect(exp_hash[:test]).to eq resource_link_title
           end
         end
       end

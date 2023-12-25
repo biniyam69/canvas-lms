@@ -24,7 +24,7 @@ import {Flex} from '@instructure/ui-flex'
 import {Transition} from '@instructure/ui-motion'
 import {Spinner} from '@instructure/ui-spinner'
 import {Button} from '@instructure/ui-buttons'
-import {IconPlusLine} from '@instructure/ui-icons'
+import {IconSearchLine} from '@instructure/ui-icons'
 
 import {showFlashError, showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
 import {GradingSchemeView} from './view/GradingSchemeView'
@@ -34,22 +34,27 @@ import {useDefaultGradingScheme} from '../hooks/useDefaultGradingScheme'
 import {useGradingSchemeCreate} from '../hooks/useGradingSchemeCreate'
 import {useGradingSchemeDelete} from '../hooks/useGradingSchemeDelete'
 import {useGradingSchemeUpdate} from '../hooks/useGradingSchemeUpdate'
-import {GradingScheme, GradingSchemeTemplate} from '../../gradingSchemeApiModel'
+import type {
+  GradingScheme,
+  GradingSchemeCardData,
+  GradingSchemeTemplate,
+} from '../../gradingSchemeApiModel'
 
 import {
-  GradingSchemeEditableData,
+  type GradingSchemeEditableData,
   GradingSchemeInput,
-  GradingSchemeInputHandle,
+  type GradingSchemeInputHandle,
 } from './form/GradingSchemeInput'
 import {defaultPointsGradingScheme} from '../../defaultPointsGradingScheme'
 import {canManageAccountGradingSchemes} from '../helpers/gradingSchemePermissions'
+import {GradingSchemeTable} from './GradingSchemeTable'
+import GradingSchemeViewModal from './GradingSchemeViewModal'
+import GradingSchemeEditModal from './GradingSchemeEditModal'
+import {TextInput} from '@instructure/ui-text-input'
+import GradingSchemeCreateModal from './GradingSchemeCreateModal'
+import {Heading} from '@instructure/ui-heading'
 
 const I18n = useI18nScope('GradingSchemeManagement')
-
-interface GradingSchemeCardData {
-  editing: boolean
-  gradingScheme: GradingScheme
-}
 
 interface GradingSchemeTemplateCardData {
   creating: boolean
@@ -60,14 +65,14 @@ export interface GradingSchemesManagementProps {
   contextId: string
   contextType: 'Account' | 'Course'
   onGradingSchemesChanged?: () => any
-  pointsBasedGradingSchemesEnabled: boolean
+  archivedGradingSchemesEnabled: boolean
 }
 
 export const GradingSchemesManagement = ({
   contextType,
   contextId,
   onGradingSchemesChanged,
-  pointsBasedGradingSchemesEnabled,
+  archivedGradingSchemesEnabled,
 }: GradingSchemesManagementProps) => {
   const {createGradingScheme /* createGradingSchemeStatus */} = useGradingSchemeCreate()
   const {deleteGradingScheme /* deleteGradingSchemeStatus */} = useGradingSchemeDelete()
@@ -82,12 +87,14 @@ export const GradingSchemesManagement = ({
   >(undefined)
 
   const [editing, setEditing] = useState<boolean>(false)
-
+  const [selectedGradingScheme, setSelectedGradingScheme] = useState<GradingScheme | undefined>(
+    undefined
+  )
   const {loadGradingSchemes} = useGradingSchemes()
   const {loadDefaultGradingScheme} = useDefaultGradingScheme()
-  const [defaultGradingSchemeTemplate, setDefaultGradingSchemeTemplate] = useState<
-    GradingSchemeTemplate | undefined
-  >(undefined)
+  const [defaultGradingScheme, setDefaultGradingScheme] = useState<GradingScheme | undefined>(
+    undefined
+  )
 
   const gradingSchemeCreateRef = useRef<GradingSchemeInputHandle>(null)
   const gradingSchemeUpdateRef = useRef<GradingSchemeInputHandle>(null)
@@ -108,8 +115,8 @@ export const GradingSchemesManagement = ({
         showFlashError(I18n.t('There was an error while loading grading schemes'))(error)
       })
     loadDefaultGradingScheme(contextType, contextId)
-      .then(defaultGradingScheme => {
-        setDefaultGradingSchemeTemplate(defaultGradingScheme)
+      .then(loadedDefaultGradingScheme => {
+        setDefaultGradingScheme(loadedDefaultGradingScheme)
       })
       .catch(error => {
         showFlashError(I18n.t('There was an error while loading the default grading scheme'))(error)
@@ -120,6 +127,7 @@ export const GradingSchemesManagement = ({
     if (!gradingSchemeCards) return
 
     // TODO: is there a good inst ui component for confirmation dialog?
+    // TODO: replace with modal dialog for delete
     if (
       // eslint-disable-next-line no-alert
       !window.confirm(
@@ -149,6 +157,8 @@ export const GradingSchemesManagement = ({
           gradingSchemeCard => gradingSchemeId !== gradingSchemeCard.gradingScheme.id
         )
       )
+      setSelectedGradingScheme(undefined)
+      setEditing(false)
     } catch (error) {
       showFlashError(I18n.t('There was an error while removing the grading scheme'))(error as Error)
     }
@@ -204,6 +214,7 @@ export const GradingSchemesManagement = ({
         return gradingSchemeCard
       })
       setGradingSchemeCards(updatedGradingSchemeCards)
+      setSelectedGradingScheme(undefined)
       setEditing(false)
       showFlashSuccess(I18n.t('Grading scheme was successfully saved.'))()
       if (onGradingSchemesChanged) {
@@ -216,10 +227,10 @@ export const GradingSchemesManagement = ({
   }
 
   const addNewGradingScheme = () => {
-    if (!gradingSchemeCards || !defaultGradingSchemeTemplate) return
+    if (!gradingSchemeCards || !defaultGradingScheme) return
     const newStandard: GradingSchemeTemplateCardData = {
       creating: true,
-      gradingSchemeTemplate: defaultGradingSchemeTemplate,
+      gradingSchemeTemplate: defaultGradingScheme,
     }
     setGradingSchemeCreating(newStandard)
   }
@@ -229,10 +240,12 @@ export const GradingSchemesManagement = ({
       throw new Error('grading scheme cards cannot be edited until after they are loaded')
     }
     if (editing) return
-    setEditing(true)
+    setSelectedGradingScheme(undefined)
     setGradingSchemeCards(
       gradingSchemeCards.map(gradingSchemeCard => {
         if (gradingSchemeCard.gradingScheme.id === gradingSchemeId) {
+          setSelectedGradingScheme(gradingSchemeCard.gradingScheme)
+          setEditing(true)
           gradingSchemeCard.editing = true
         }
         return gradingSchemeCard
@@ -240,11 +253,17 @@ export const GradingSchemesManagement = ({
     )
   }
 
+  function openGradingScheme(gradingScheme: GradingScheme) {
+    setSelectedGradingScheme(gradingScheme)
+    setEditing(false)
+  }
+
   function handleCancelEdit(gradingSchemeId: string) {
     if (!gradingSchemeCards) {
       throw new Error('grading scheme cards cannot be edited until after they are loaded')
     }
     setEditing(false)
+    setSelectedGradingScheme(undefined)
     setGradingSchemeCards(
       gradingSchemeCards.map(gradingSchemeCard => {
         if (gradingSchemeCard.gradingScheme.id === gradingSchemeId) {
@@ -254,6 +273,11 @@ export const GradingSchemesManagement = ({
       })
     )
   }
+
+  function handleCancelCreate() {
+    setGradingSchemeCreating(undefined)
+  }
+
   function canManageScheme(gradingScheme: GradingScheme) {
     if (editing) {
       return false
@@ -274,23 +298,32 @@ export const GradingSchemesManagement = ({
     <>
       <View>
         <Flex justifyItems="end">
-          <Flex.Item>
+          {archivedGradingSchemesEnabled && (
+            <Flex.Item margin="medium small 0 0" shouldShrink={true}>
+              <TextInput
+                type="search"
+                placeholder={I18n.t('Search...')}
+                renderBeforeInput={() => <IconSearchLine inline={false} />}
+                width="22.5rem"
+              />
+            </Flex.Item>
+          )}
+          <Flex.Item margin="medium 0 0 small">
             <Button
-              color="secondary"
+              color="primary"
               onClick={addNewGradingScheme}
               disabled={!!(gradingSchemeCreating || editing)}
             >
-              <IconPlusLine />
-              {I18n.t('Add grading scheme')}
+              {I18n.t('New Grading Scheme')}
             </Button>
           </Flex.Item>
         </Flex>
       </View>
-      {!gradingSchemeCards || !defaultGradingSchemeTemplate ? (
+      {!gradingSchemeCards || !defaultGradingScheme ? (
         <Spinner renderTitle="Loading" size="small" margin="0 0 0 medium" />
       ) : (
         <>
-          {gradingSchemeCreating ? (
+          {!archivedGradingSchemesEnabled && gradingSchemeCreating ? (
             <>
               <Transition transitionOnMount={true} unmountOnExit={true} in={true} type="fade">
                 <View
@@ -308,7 +341,7 @@ export const GradingSchemesManagement = ({
                     schemeInputType="percentage"
                     initialFormDataByInputType={{
                       percentage: {
-                        data: defaultGradingSchemeTemplate.data,
+                        data: defaultGradingScheme.data,
                         title: '',
                         scalingFactor: 1.0,
                         pointsBased: false,
@@ -320,16 +353,13 @@ export const GradingSchemesManagement = ({
                         pointsBased: true,
                       },
                     }}
-                    pointsBasedGradingSchemesFeatureEnabled={pointsBasedGradingSchemesEnabled}
                     onSave={handleCreateScheme}
+                    archivedGradingSchemesEnabled={archivedGradingSchemesEnabled}
                   />
                   <hr />
                   <Flex justifyItems="end">
                     <Flex.Item>
-                      <Button
-                        onClick={() => setGradingSchemeCreating(undefined)}
-                        margin="0 x-small 0 0"
-                      >
+                      <Button onClick={handleCancelCreate} margin="0 x-small 0 0">
                         {I18n.t('Cancel')}
                       </Button>
                       <Button
@@ -346,103 +376,167 @@ export const GradingSchemesManagement = ({
           ) : (
             <></>
           )}
-          {gradingSchemeCards.map(gradingSchemeCard => (
+          {archivedGradingSchemesEnabled && defaultGradingScheme ? (
+            <>
+              <Heading
+                level="h2"
+                margin="medium 0"
+                themeOverride={{h2FontWeight: 700, lineHeight: 1.05}}
+              >
+                {I18n.t('Canvas Default')}
+              </Heading>
+              <GradingSchemeTable
+                gradingSchemeCards={[{editing: false, gradingScheme: defaultGradingScheme}]}
+                caption="Canvas Default Grading Schemes"
+                editGradingScheme={editGradingScheme}
+                openGradingScheme={openGradingScheme}
+                handleGradingSchemeDelete={handleGradingSchemeDelete}
+                defaultScheme={true}
+              />
+              <Heading
+                level="h2"
+                margin="large 0 medium"
+                themeOverride={{h2FontWeight: 700, lineHeight: 1.05}}
+              >
+                {I18n.t('Your Grading Schemes')}
+              </Heading>
+              <GradingSchemeTable
+                gradingSchemeCards={gradingSchemeCards}
+                caption="Grading Schemes"
+                editGradingScheme={editGradingScheme}
+                openGradingScheme={openGradingScheme}
+                handleGradingSchemeDelete={handleGradingSchemeDelete}
+              />
+              <GradingSchemeViewModal
+                open={selectedGradingScheme !== undefined && !editing}
+                gradingScheme={selectedGradingScheme}
+                handleClose={() => setSelectedGradingScheme(undefined)}
+                handleGradingSchemeDelete={handleGradingSchemeDelete}
+                editGradingScheme={editGradingScheme}
+                canManageScheme={canManageScheme}
+              />
+              <GradingSchemeEditModal
+                open={selectedGradingScheme !== undefined && editing}
+                gradingScheme={selectedGradingScheme}
+                handleCancelEdit={handleCancelEdit}
+                handleUpdateScheme={handleUpdateScheme}
+                defaultGradingSchemeTemplate={defaultGradingScheme}
+                defaultPointsGradingScheme={defaultPointsGradingScheme}
+                archivedGradingSchemesEnabled={archivedGradingSchemesEnabled}
+                handleGradingSchemeDelete={handleGradingSchemeDelete}
+              />
+              <GradingSchemeCreateModal
+                open={!!gradingSchemeCreating}
+                handleCreateScheme={handleCreateScheme}
+                archivedGradingSchemesEnabled={archivedGradingSchemesEnabled}
+                defaultGradingSchemeTemplate={defaultGradingScheme}
+                defaultPointsGradingScheme={defaultPointsGradingScheme}
+                handleCancelCreate={handleCancelCreate}
+              />
+            </>
+          ) : (
+            gradingSchemeCards.map(gradingSchemeCard => (
+              <View
+                display="block"
+                padding="small"
+                margin="medium none medium none"
+                borderWidth="small"
+                borderRadius="medium"
+                key={gradingSchemeCard.gradingScheme.id}
+              >
+                {gradingSchemeCard.editing ? (
+                  <Transition transitionOnMount={true} unmountOnExit={true} in={true} type="fade">
+                    <>
+                      <GradingSchemeInput
+                        schemeInputType={
+                          gradingSchemeCard.gradingScheme.points_based ? 'points' : 'percentage'
+                        }
+                        initialFormDataByInputType={{
+                          percentage: {
+                            data: gradingSchemeCard.gradingScheme.points_based
+                              ? defaultGradingScheme.data
+                              : gradingSchemeCard.gradingScheme.data,
+                            title: gradingSchemeCard.gradingScheme.title,
+                            pointsBased: false,
+                            scalingFactor: 1.0,
+                          },
+                          points: {
+                            data: gradingSchemeCard.gradingScheme.points_based
+                              ? gradingSchemeCard.gradingScheme.data
+                              : defaultPointsGradingScheme.data,
+                            title: gradingSchemeCard.gradingScheme.title,
+                            pointsBased: true,
+                            scalingFactor: gradingSchemeCard.gradingScheme.points_based
+                              ? gradingSchemeCard.gradingScheme.scaling_factor
+                              : defaultPointsGradingScheme.scaling_factor,
+                          },
+                        }}
+                        ref={gradingSchemeUpdateRef}
+                        archivedGradingSchemesEnabled={archivedGradingSchemesEnabled}
+                        onSave={modifiedGradingScheme =>
+                          handleUpdateScheme(
+                            modifiedGradingScheme,
+                            gradingSchemeCard.gradingScheme.id
+                          )
+                        }
+                      />
+                      <hr />
+                      <Flex justifyItems="end">
+                        <Flex.Item>
+                          <Button
+                            onClick={() => handleCancelEdit(gradingSchemeCard.gradingScheme.id)}
+                            margin="0 x-small 0 0"
+                          >
+                            {I18n.t('Cancel')}
+                          </Button>
+                          <Button
+                            onClick={() => gradingSchemeUpdateRef.current?.savePressed()}
+                            color="primary"
+                          >
+                            {I18n.t('Save')}
+                          </Button>
+                        </Flex.Item>
+                      </Flex>
+                    </>
+                  </Transition>
+                ) : (
+                  <Transition transitionOnMount={true} unmountOnExit={true} in={true} type="fade">
+                    <View display="block">
+                      <GradingSchemeView
+                        gradingScheme={gradingSchemeCard.gradingScheme}
+                        archivedGradingSchemesEnabled={archivedGradingSchemesEnabled}
+                        disableDelete={!canManageScheme(gradingSchemeCard.gradingScheme)}
+                        disableEdit={!canManageScheme(gradingSchemeCard.gradingScheme)}
+                        onDeleteRequested={() =>
+                          handleGradingSchemeDelete(gradingSchemeCard.gradingScheme.id)
+                        }
+                        onEditRequested={() =>
+                          editGradingScheme(gradingSchemeCard.gradingScheme.id)
+                        }
+                      />
+                    </View>
+                  </Transition>
+                )}
+              </View>
+            ))
+          )}
+          {!archivedGradingSchemesEnabled && (
             <View
               display="block"
               padding="small"
-              margin="medium none medium none"
+              margin="medium none"
               borderWidth="small"
-              borderRadius="medium"
-              key={gradingSchemeCard.gradingScheme.id}
+              borderRadius="small"
             >
-              {gradingSchemeCard.editing ? (
-                <Transition transitionOnMount={true} unmountOnExit={true} in={true} type="fade">
-                  <>
-                    <GradingSchemeInput
-                      schemeInputType={
-                        gradingSchemeCard.gradingScheme.points_based ? 'points' : 'percentage'
-                      }
-                      initialFormDataByInputType={{
-                        percentage: {
-                          data: gradingSchemeCard.gradingScheme.points_based
-                            ? defaultGradingSchemeTemplate.data
-                            : gradingSchemeCard.gradingScheme.data,
-                          title: gradingSchemeCard.gradingScheme.title,
-                          pointsBased: false,
-                          scalingFactor: 1.0,
-                        },
-                        points: {
-                          data: gradingSchemeCard.gradingScheme.points_based
-                            ? gradingSchemeCard.gradingScheme.data
-                            : defaultPointsGradingScheme.data,
-                          title: gradingSchemeCard.gradingScheme.title,
-                          pointsBased: true,
-                          scalingFactor: gradingSchemeCard.gradingScheme.points_based
-                            ? gradingSchemeCard.gradingScheme.scaling_factor
-                            : defaultPointsGradingScheme.scaling_factor,
-                        },
-                      }}
-                      ref={gradingSchemeUpdateRef}
-                      pointsBasedGradingSchemesFeatureEnabled={pointsBasedGradingSchemesEnabled}
-                      onSave={modifiedGradingScheme =>
-                        handleUpdateScheme(
-                          modifiedGradingScheme,
-                          gradingSchemeCard.gradingScheme.id
-                        )
-                      }
-                    />
-                    <hr />
-                    <Flex justifyItems="end">
-                      <Flex.Item>
-                        <Button
-                          onClick={() => handleCancelEdit(gradingSchemeCard.gradingScheme.id)}
-                          margin="0 x-small 0 0"
-                        >
-                          {I18n.t('Cancel')}
-                        </Button>
-                        <Button
-                          onClick={() => gradingSchemeUpdateRef.current?.savePressed()}
-                          color="primary"
-                        >
-                          {I18n.t('Save')}
-                        </Button>
-                      </Flex.Item>
-                    </Flex>
-                  </>
-                </Transition>
-              ) : (
-                <Transition transitionOnMount={true} unmountOnExit={true} in={true} type="fade">
-                  <View display="block">
-                    <GradingSchemeView
-                      gradingScheme={gradingSchemeCard.gradingScheme}
-                      pointsBasedGradingSchemesEnabled={pointsBasedGradingSchemesEnabled}
-                      disableDelete={!canManageScheme(gradingSchemeCard.gradingScheme)}
-                      disableEdit={!canManageScheme(gradingSchemeCard.gradingScheme)}
-                      onDeleteRequested={() =>
-                        handleGradingSchemeDelete(gradingSchemeCard.gradingScheme.id)
-                      }
-                      onEditRequested={() => editGradingScheme(gradingSchemeCard.gradingScheme.id)}
-                    />
-                  </View>
-                </Transition>
-              )}
+              <View display="block">
+                <GradingSchemeTemplateView
+                  allowDuplicate={false}
+                  onDuplicationRequested={addNewGradingScheme}
+                  gradingSchemeTemplate={defaultGradingScheme}
+                />
+              </View>
             </View>
-          ))}
-          <View
-            display="block"
-            padding="small"
-            margin="medium none medium none"
-            borderWidth="small"
-            borderRadius="small"
-          >
-            <View display="block">
-              <GradingSchemeTemplateView
-                allowDuplicate={false}
-                onDuplicationRequested={addNewGradingScheme}
-                gradingSchemeTemplate={defaultGradingSchemeTemplate}
-              />
-            </View>
-          </View>
+          )}
         </>
       )}
     </>

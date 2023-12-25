@@ -24,14 +24,8 @@ import {IconEditLine, IconPlusLine, IconTrashLine} from '@instructure/ui-icons'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Table} from '@instructure/ui-table'
-import {
-  Enrollment,
-  EnrollmentType,
-  MODULE_NAME,
-  PROVIDER,
-  TempEnrollPermissions,
-  User,
-} from './types'
+import type {Enrollment, EnrollmentType, TempEnrollPermissions, User} from './types'
+import {MODULE_NAME, PROVIDER} from './types'
 import {deleteEnrollment} from './api/enrollment'
 import useDateTimeFormat from '@canvas/use-date-time-format-hook'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
@@ -44,13 +38,13 @@ const I18n = useI18nScope('temporary_enrollment')
 const analyticProps = createAnalyticPropsGenerator(MODULE_NAME)
 
 interface Props {
-  readonly enrollments: Enrollment[]
-  readonly user: User
-  readonly onEdit?: (enrollment: User) => void
-  readonly onDelete?: (enrollmentId: number) => void
-  readonly onAddNew?: () => void
-  readonly enrollmentType: EnrollmentType
-  readonly tempEnrollPermissions: TempEnrollPermissions
+  enrollments: Enrollment[]
+  user: User
+  onEdit?: (enrollment: User, tempEnrollments: Enrollment[]) => void
+  onDelete?: (enrollmentIds: string[]) => void
+  onAddNew?: () => void
+  enrollmentType: EnrollmentType
+  tempEnrollPermissions: TempEnrollPermissions
 }
 
 export function getRelevantUserFromEnrollment(enrollment: Enrollment) {
@@ -73,34 +67,45 @@ export function groupEnrollmentsByPairingId(enrollments: Enrollment[]) {
 }
 
 /**
- * Confirms and deletes an enrollment
+ * Confirms with the user and then attempts to delete a list of enrollments,
+ * calls the onDelete callback for each successfully deleted enrollment
  *
- * @param {number} courseId ID of course to delete enrollment from
- * @param {number} enrollmentId ID of enrollment to be deleted
- * @param {function} onDelete Callback function called after enrollment is deleted,
- *                            likely passed in via props and used to update state
+ * @param {Enrollment[]} tempEnrollments Enrollments to be deleted
+ * @param {function} onDelete Callback function
+ * @returns {Promise<void>}
  */
 async function handleConfirmAndDeleteEnrollment(
-  courseId: number,
-  enrollmentId: number,
-  onDelete?: (id: number) => void
-) {
+  tempEnrollments: Enrollment[],
+  onDelete?: (enrollmentIds: string[]) => void
+): Promise<void> {
   // TODO is there a good inst ui component for confirmation dialog?
   // eslint-disable-next-line no-alert
   const userConfirmed = window.confirm(I18n.t('Are you sure you want to delete this enrollment?'))
-
   if (userConfirmed) {
-    try {
-      await deleteEnrollment(courseId, enrollmentId, onDelete)
-
+    const results = await Promise.allSettled(
+      tempEnrollments.map(enrollment =>
+        deleteEnrollment(enrollment.course_id, enrollment.id)
+          .then(() => ({status: 'success', id: enrollment.id}))
+          .catch(() => ({status: 'error', id: enrollment.id}))
+      )
+    )
+    const successfulDeletions = results
+      .filter(result => result.status === 'fulfilled')
+      .map(result => (result as PromiseFulfilledResult<{status: string; id: string}>).value.id)
+    if (successfulDeletions.length > 0) {
       showFlashAlert({
         type: 'success',
-        message: I18n.t('Enrollment deleted successfully'),
+        message: `${successfulDeletions.length} enrollments deleted successfully.`,
       })
-    } catch (error) {
+      if (onDelete) {
+        onDelete(successfulDeletions)
+      }
+    }
+    const errorCount = results.filter(result => result.status === 'rejected').length
+    if (errorCount > 0) {
       showFlashAlert({
         type: 'error',
-        message: I18n.t('Enrollment could not be deleted'),
+        message: `${errorCount} enrollments could not be deleted.`,
       })
     }
   }
@@ -119,18 +124,18 @@ export function TempEnrollEdit(props: Props) {
 
   const enrollmentGroups = groupEnrollmentsByPairingId(props.enrollments)
 
-  const handleEditClick = (enrollment: Enrollment) => {
+  const handleEditClick = (enrollments: Enrollment[]) => {
     if (canEdit) {
-      props.onEdit?.(getRelevantUserFromEnrollment(enrollment))
+      props.onEdit?.(getRelevantUserFromEnrollment(enrollments[0]), enrollments)
     } else {
       // eslint-disable-next-line no-console
       console.error('User does not have permission to edit enrollment')
     }
   }
 
-  const handleDeleteClick = (enrollment: Enrollment) => {
+  const handleDeleteClick = (enrollments: Enrollment[]) => {
     if (canDelete) {
-      handleConfirmAndDeleteEnrollment(enrollment.course_id, enrollment.id, props.onDelete)
+      handleConfirmAndDeleteEnrollment(enrollments, props.onDelete)
     } else {
       // eslint-disable-next-line no-console
       console.error('User does not have permission to delete enrollment')
@@ -146,45 +151,49 @@ export function TempEnrollEdit(props: Props) {
     }
   }
 
-  const renderActionIcons = (enrollment: Enrollment) => (
-    <>
+  const renderActionIcons = (enrollments: Enrollment[]) => (
+    <Flex gap="xxx-small" wrap="no-wrap" justifyItems="end">
       {canEdit && (
-        <Tooltip renderTip={I18n.t('Edit')}>
-          <IconButton
-            data-testid="edit-button"
-            withBorder={false}
-            withBackground={false}
-            size="small"
-            screenReaderLabel={I18n.t('Edit')}
-            onClick={() => handleEditClick(enrollment)}
-            {...analyticProps('Edit')}
-          >
-            <IconEditLine title={I18n.t('Edit')} />
-          </IconButton>
-        </Tooltip>
+        <Flex.Item shouldShrink={true}>
+          <Tooltip renderTip={I18n.t('Edit')}>
+            <IconButton
+              data-testid="edit-button"
+              withBorder={false}
+              withBackground={false}
+              size="small"
+              screenReaderLabel={I18n.t('Edit')}
+              onClick={() => handleEditClick(enrollments)}
+              {...analyticProps('Edit')}
+            >
+              <IconEditLine />
+            </IconButton>
+          </Tooltip>
+        </Flex.Item>
       )}
 
       {canDelete && (
-        <Tooltip renderTip={I18n.t('Delete')}>
-          <IconButton
-            data-testid="delete-button"
-            withBorder={false}
-            withBackground={false}
-            size="small"
-            screenReaderLabel={I18n.t('Delete')}
-            onClick={() => handleDeleteClick(enrollment)}
-            {...analyticProps('Delete')}
-          >
-            <IconTrashLine title={I18n.t('Delete')} />
-          </IconButton>
-        </Tooltip>
+        <Flex.Item shouldShrink={true}>
+          <Tooltip renderTip={I18n.t('Delete')}>
+            <IconButton
+              data-testid="delete-button"
+              withBorder={false}
+              withBackground={false}
+              size="small"
+              screenReaderLabel={I18n.t('Delete')}
+              onClick={() => handleDeleteClick(enrollments)}
+              {...analyticProps('Delete')}
+            >
+              <IconTrashLine />
+            </IconButton>
+          </Tooltip>
+        </Flex.Item>
       )}
-    </>
+    </Flex>
   )
 
   return (
     <Flex gap="medium" direction="column">
-      <Flex.Item padding="xx-small">
+      <Flex.Item overflowY="visible">
         <Flex wrap="wrap" gap="x-small" justifyItems="space-between">
           <Flex.Item>
             <TempEnrollAvatar user={props.user} />
@@ -196,19 +205,15 @@ export function TempEnrollEdit(props: Props) {
                 onClick={handleAddNewClick}
                 aria-label={I18n.t('Create temporary enrollment')}
                 {...analyticProps('Create')}
+                renderIcon={IconPlusLine}
               >
-                <Flex alignItems="center" justifyItems="center" gap="xx-small">
-                  <Flex.Item>
-                    <IconPlusLine />
-                  </Flex.Item>
-                  <Flex.Item shouldGrow={true}>{I18n.t('Recipient')}</Flex.Item>
-                </Flex>
+                {I18n.t('Recipient')}
               </Button>
             </Flex.Item>
           )}
         </Flex>
       </Flex.Item>
-      <Flex.Item shouldGrow={true} padding="xx-small">
+      <Flex.Item shouldGrow={true}>
         <Table caption={<ScreenReaderContent>{I18n.t('User information')}</ScreenReaderContent>}>
           <Table.Head>
             <Table.Row>
@@ -222,7 +227,7 @@ export function TempEnrollEdit(props: Props) {
                 {I18n.t('Recipient Enrollment Type')}
               </Table.ColHeader>
               {(canEdit || canDelete) && (
-                <Table.ColHeader id="header-user-option-links" width="1">
+                <Table.ColHeader id="header-user-option-links">
                   <ScreenReaderContent>
                     {I18n.t('Temporary enrollment option links')}
                   </ScreenReaderContent>
@@ -232,7 +237,7 @@ export function TempEnrollEdit(props: Props) {
           </Table.Head>
           <Table.Body>
             {Object.entries(enrollmentGroups).map(([pairingId, enrollmentGroup]) => {
-              const firstEnrollment = enrollmentGroup[0]
+              const firstEnrollment: Enrollment = enrollmentGroup[0]
               return (
                 <Table.Row key={pairingId}>
                   <Table.RowHeader>{getEnrollmentUserDisplayName(firstEnrollment)}</Table.RowHeader>
@@ -242,9 +247,7 @@ export function TempEnrollEdit(props: Props) {
                     )}`}
                   </Table.Cell>
                   <Table.Cell>{firstEnrollment.type}</Table.Cell>
-                  {canEditOrDelete && (
-                    <Table.Cell textAlign="end">{renderActionIcons(firstEnrollment)}</Table.Cell>
-                  )}
+                  {canEditOrDelete && <Table.Cell>{renderActionIcons(enrollmentGroup)}</Table.Cell>}
                 </Table.Row>
               )
             })}

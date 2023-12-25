@@ -557,7 +557,11 @@ class CoursesController < ApplicationController
         @past_enrollments << first_enrollment unless first_enrollment.workflow_state == "invited"
       elsif !first_enrollment.hard_inactive?
         if first_enrollment.enrollment_state.pending? || state == :creation_pending ||
-           (first_enrollment.admin? && first_enrollment.course.start_at&.>(Time.now.utc))
+           (first_enrollment.admin? && (
+               first_enrollment.course.restrict_enrollments_to_course_dates &&
+               first_enrollment.course.start_at&.>(Time.now.utc)
+             )
+           )
           @future_enrollments << first_enrollment unless first_enrollment.restrict_future_listing?
         elsif state != :inactive
           @current_enrollments << first_enrollment
@@ -679,6 +683,9 @@ class CoursesController < ApplicationController
   #
   # @argument homeroom [Optional, Boolean]
   #   If set, only return homeroom courses.
+  #
+  # @argument account_id [Optional, String]
+  #   If set, only include courses associated with this account
   #
   # @returns [Course]
   def user_index
@@ -1553,8 +1560,6 @@ class CoursesController < ApplicationController
                MSFT_SYNC_MAX_ENROLLMENT_MEMBERS: MicrosoftSync::MembershipDiff::MAX_ENROLLMENT_MEMBERS,
                MSFT_SYNC_MAX_ENROLLMENT_OWNERS: MicrosoftSync::MembershipDiff::MAX_ENROLLMENT_OWNERS,
                COURSE_PACES_ENABLED: @context.enable_course_paces?,
-               POINTS_BASED_GRADING_SCHEMES_ENABLED:
-                 Account.site_admin.feature_enabled?(:points_based_grading_schemes)
              })
 
       set_tutorial_js_env
@@ -1773,6 +1778,7 @@ class CoursesController < ApplicationController
       csv << [
         I18n.t("Last Name"),
         I18n.t("First Name"),
+        I18n.t("SIS ID"),
         I18n.t("Pairing Code"),
         I18n.t("Expires At"),
       ]
@@ -1781,6 +1787,7 @@ class CoursesController < ApplicationController
         row = []
         row << opc.user.last_name
         row << opc.user.first_name
+        row << opc.user.pseudonym&.sis_user_id
         row << ('="' + opc.code + '"')
         row << opc.expires_at
         csv << row
@@ -2337,13 +2344,11 @@ class CoursesController < ApplicationController
           js_bundle :wiki_page_show
           css_bundle :wiki_page, :tinymce
         when "modules"
-          if Account.site_admin.feature_enabled?(:module_publish_menu)
-            @progress = Progress.find_by(
-              context: @context,
-              tag: "context_module_batch_update",
-              workflow_state: ["queued", "running"]
-            )
-          end
+          @progress = Progress.find_by(
+            context: @context,
+            tag: "context_module_batch_update",
+            workflow_state: ["queued", "running"]
+          )
 
           js_env(CONTEXT_MODULE_ASSIGNMENT_INFO_URL: context_url(@context, :context_context_modules_assignment_info_url))
 
@@ -2592,7 +2597,7 @@ class CoursesController < ApplicationController
               "communication_channel_id" => e.user.communication_channel.try(:id),
               "email" => e.email,
               "id" => e.id,
-              "name" => (e.user.last_name_first || e.user.name),
+              "name" => e.user.last_name_first || e.user.name,
               "pseudonym_id" => e.user.pseudonym.try(:id),
               "section" => e.course_section.display_name,
               "short_name" => e.user.short_name,
@@ -3191,7 +3196,7 @@ class CoursesController < ApplicationController
             @course.errors.add(:master_course, message)
           else
             action = master_course ? "set" : "remove"
-            MasterCourses::MasterTemplate.send("#{action}_as_master_course", @course)
+            MasterCourses::MasterTemplate.send(:"#{action}_as_master_course", @course)
             @new_save_master_course = master_course
           end
         end
@@ -3311,14 +3316,14 @@ class CoursesController < ApplicationController
     end
 
     if params[:course][:"#{setting_name}_url"]
-      @course.send("#{setting_name}_url=", params[:course][:"#{setting_name}_url"])
-      @course.send("#{setting_name}_id=", nil)
+      @course.send(:"#{setting_name}_url=", params[:course][:"#{setting_name}_url"])
+      @course.send(:"#{setting_name}_id=", nil)
     end
 
     if params[:course][:"#{setting_name}_id"]
       if @course.attachments.active.where(id: params[:course][:"#{setting_name}_id"]).exists?
-        @course.send("#{setting_name}_id=", params[:course][:"#{setting_name}_id"])
-        @course.send("#{setting_name}_url=", nil)
+        @course.send(:"#{setting_name}_id=", params[:course][:"#{setting_name}_id"])
+        @course.send(:"#{setting_name}_url=", nil)
       else
         respond_to do |format|
           format.json { render json: { message: "The image_id is not a valid course file id." }, status: :bad_request }
@@ -3328,8 +3333,8 @@ class CoursesController < ApplicationController
     end
 
     if params[:course][:"remove_#{setting_name}"]
-      @course.send("#{setting_name}_url=", nil)
-      @course.send("#{setting_name}_id=", nil)
+      @course.send(:"#{setting_name}_url=", nil)
+      @course.send(:"#{setting_name}_id=", nil)
     end
   end
 
@@ -3948,6 +3953,11 @@ class CoursesController < ApplicationController
       enrollments.reject! { |e| homeroom_ids.exclude?(e.course_id) }
     end
 
+    if params[:account_id]
+      account = api_find(Account.active, params[:account_id])
+      enrollments = enrollments.select { |e| e.course.account == account }
+    end
+
     Canvas::Builders::EnrollmentDateBuilder.preload_state(enrollments)
     enrollments_by_course = enrollments.group_by(&:course_id).values
     enrollments_by_course.sort_by! do |course_enrollments|
@@ -4009,18 +4019,20 @@ class CoursesController < ApplicationController
     return render_unauthorized_action unless @current_user.present?
 
     @user = (params[:user_id] == "self") ? @current_user : api_find(User, params[:user_id])
-    authorized_action(@user, @current_user, :read)
+    unless @user.grants_right?(@current_user, :read) || @user.check_accounts_right?(@current_user, :read)
+      render_unauthorized_action
+    end
   end
 
   def visibility_configuration(params)
     @course.apply_visibility_configuration(params[:course_visibility])
 
     if params[:custom_course_visibility].present? && !value_to_boolean(params[:custom_course_visibility])
-      Course::CUSTOMIZABLE_PERMISSIONS.each do |key, _|
+      Course::CUSTOMIZABLE_PERMISSIONS.each_key do |key|
         @course.apply_custom_visibility_configuration(key, "inherit")
       end
     else
-      Course::CUSTOMIZABLE_PERMISSIONS.each do |key, _|
+      Course::CUSTOMIZABLE_PERMISSIONS.each_key do |key|
         @course.apply_custom_visibility_configuration(key, params[:"#{key}_visibility_option"])
       end
     end

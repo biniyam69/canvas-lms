@@ -21,6 +21,7 @@ import {Section} from './Section'
 import gql from 'graphql-tag'
 import {Attachment} from './Attachment'
 import {GroupSet} from './GroupSet'
+import {Assignment} from './Assignment'
 
 export const DiscussionTopic = {
   fragment: gql`
@@ -51,8 +52,12 @@ export const DiscussionTopic = {
       attachment {
         ...Attachment
       }
+      assignment {
+        ...Assignment
+      }
     }
     ${Attachment.fragment}
+    ${Assignment.fragment}
     ${Section.fragment}
     ${GroupSet.fragment}
   `,
@@ -77,6 +82,7 @@ export const DiscussionTopic = {
     courseSections: arrayOf(Section.shape),
     groupSet: GroupSet.shape,
     attachment: Attachment.shape,
+    assignment: Assignment.shape,
   }),
 
   mock: ({
@@ -99,6 +105,7 @@ export const DiscussionTopic = {
     courseSections = [Section.mock()],
     groupSet = GroupSet.mock(),
     attachment = Attachment.mock(),
+    assignment = null,
   } = {}) => ({
     _id,
     id,
@@ -119,6 +126,7 @@ export const DiscussionTopic = {
     courseSections,
     groupSet,
     attachment,
+    assignment,
     __typename: 'Discussion',
   }),
 }

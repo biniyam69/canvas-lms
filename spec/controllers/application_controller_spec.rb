@@ -35,7 +35,10 @@ RSpec.describe ApplicationController do
         user_agent: nil,
         remote_ip: "0.0.0.0",
         base_url: "https://canvas.test",
-        referer: nil
+        referer: nil,
+        cookies: {}, # for make_lti_launch_debug_logger
+        cookie_jar: {}, # for make_lti_launch_debug_logger
+        original_fullpath: "/" # for make_lti_launch_debug_logger
       )
       allow(controller).to receive(:request).and_return(request_double)
     end
@@ -183,6 +186,38 @@ RSpec.describe ApplicationController do
           it "for the course where user is enrolled as student" do
             controller.instance_variable_set(:@context, @course_with_user_as_student)
             expect(controller.js_env[:current_user_is_student]).to be_truthy
+          end
+        end
+
+        context "current_user_is_admin" do
+          before do
+            @sub_account = Account.create(name: "sub account from default account", parent_account: Account.default)
+            @teacher_sub_account_admin = user_with_pseudonym(username: "nobody@example.com")
+            @root_account_course = Course.create!(name: "course in root account", account: Account.default)
+            @root_account_course.enroll_user(@teacher_sub_account_admin, "TeacherEnrollment", enrollment_state: "active")
+            @sub_account_course = Course.create!(name: "course in sub account", account: @sub_account)
+            @sub_account.account_users.create!(user: @teacher_sub_account_admin)
+            @admin = user_with_pseudonym(username: "nobody2@example.com")
+            Account.default.account_users.create!(user: @admin)
+            allow(controller).to receive("api_v1_course_ping_url").and_return({})
+          end
+
+          it "is set to false when the user is an account admin of a different account that is not the parent account of the course" do
+            controller.instance_variable_set(:@current_user, @teacher_sub_account_admin)
+            controller.instance_variable_set(:@context, @root_account_course)
+            expect(controller.js_env[:current_user_is_admin]).to be_falsey
+          end
+
+          it "is set to true when the user is an account admin of the account that is the parent account of the course" do
+            controller.instance_variable_set(:@current_user, @teacher_sub_account_admin)
+            controller.instance_variable_set(:@context, @sub_account_course)
+            expect(controller.js_env[:current_user_is_admin]).to be_truthy
+          end
+
+          it "is set to true when the user is an account admin of the root account" do
+            controller.instance_variable_set(:@current_user, @admin)
+            controller.instance_variable_set(:@context, @root_account_course)
+            expect(controller.js_env[:current_user_is_admin]).to be_truthy
           end
         end
       end
@@ -968,9 +1003,10 @@ RSpec.describe ApplicationController do
       end
 
       context "ContextExternalTool" do
-        let(:course) { course_model }
         let_once(:dev_key) { DeveloperKey.create! }
 
+        let(:course) { course_model }
+        let(:user) { user_model }
         let(:tool) do
           tool = course.context_external_tools.new(
             name: "bob",
@@ -993,16 +1029,21 @@ RSpec.describe ApplicationController do
           tool
         end
 
-        let(:content_tag) { ContentTag.create(content: tool, url: tool.url) }
+        let(:content_tag) { ContentTag.create(id: 42, content: tool, url: tool.url) }
+
+        before do
+          allow(controller).to receive(:named_context_url).and_return("wrong_url")
+          allow(controller).to receive(:render)
+          allow(controller).to receive_messages(js_env: [])
+          allow(controller).to receive(:require_user) { user_model }
+
+          controller.instance_variable_set(:@current_user, user)
+          controller.instance_variable_set(:@context, course)
+          controller.instance_variable_set(:@domain_root_account, course.account)
+        end
 
         context "display type" do
           before do
-            allow(controller).to receive(:named_context_url).and_return("wrong_url")
-            allow(controller).to receive(:render)
-            allow(controller).to receive_messages(js_env: [])
-            controller.instance_variable_set(:@context, course)
-            allow(content_tag).to receive(:id).and_return(42)
-            allow(controller).to receive(:require_user) { user_model }
             allow(controller).to receive(:lti_launch_params) { {} }
             content_tag.update!(context: assignment_model)
           end
@@ -1096,21 +1137,10 @@ RSpec.describe ApplicationController do
         end
 
         context "lti version" do
-          let_once(:user) { user_model }
-
           before do
-            allow(controller).to receive_messages(named_context_url: "wrong_url",
-                                                  lti_grade_passback_api_url: "wrong_url",
+            allow(controller).to receive_messages(lti_grade_passback_api_url: "wrong_url",
                                                   blti_legacy_grade_passback_api_url: "wrong_url",
                                                   lti_turnitin_outcomes_placement_url: "wrong_url")
-
-            allow(controller).to receive(:render)
-            allow(controller).to receive_messages(js_env: [])
-            controller.instance_variable_set(:@context, course)
-            allow(content_tag).to receive(:id).and_return(42)
-            allow(controller).to receive(:require_user) { user_model }
-            controller.instance_variable_set(:@current_user, user)
-            controller.instance_variable_set(:@domain_root_account, course.account)
             content_tag.update!(context: assignment_model)
           end
 
@@ -1139,8 +1169,14 @@ RSpec.describe ApplicationController do
               let(:cached_launch) { JSON.parse(Canvas.redis.get(redis_key)) }
 
               before do
+                Lti::LaunchDebugLogger.enable!(account, 1)
+
                 allow(SecureRandom).to receive(:hex).and_return(verifier)
                 controller.send(:content_tag_redirect, course, content_tag, nil)
+              end
+
+              after do
+                Lti::LaunchDebugLogger.disable!(account)
               end
 
               it "caches the LTI 1.3 launch" do
@@ -1198,6 +1234,12 @@ RSpec.describe ApplicationController do
                 it "uses the custom url as the target_link_uri" do
                   expect(assigns[:lti_launch].params["target_link_uri"]).to eq custom_url
                 end
+              end
+
+              it "includes debug_trace in the lti_message_hint (if enabled for the account)" do
+                message_hint = JSON::JWT.decode(assigns[:lti_launch].params["lti_message_hint"], :skip_verification)
+                expect(message_hint["debug_trace"]).to be_a(String)
+                expect(message_hint["debug_trace"]).to_not be_empty
               end
             end
 
@@ -1263,10 +1305,8 @@ RSpec.describe ApplicationController do
 
         context "return_url" do
           before do
-            controller.instance_variable_set(:@context, course)
             content_tag.update!(context: assignment_model)
             allow(content_tag.context).to receive(:quiz_lti?).and_return(true)
-            allow(controller).to receive(:render)
             allow(controller).to receive(:lti_launch_params)
             allow(controller).to receive_messages(require_user: true,
                                                   named_context_url: "named_context_url",
@@ -1439,12 +1479,6 @@ RSpec.describe ApplicationController do
           let(:override_url) { "http://www.example-beta.com/basic_lti" }
 
           before do
-            allow(controller).to receive(:named_context_url).and_return(tool.url)
-            allow(controller).to receive(:render)
-            allow(controller).to receive_messages(js_env: [])
-            controller.instance_variable_set(:@context, course)
-            allow(content_tag).to receive(:id).and_return(42)
-
             allow(ApplicationController).to receive_messages(test_cluster?: true, test_cluster_name: "beta")
             Account.site_admin.enable_feature! :dynamic_lti_environment_overrides
 
@@ -1460,6 +1494,22 @@ RSpec.describe ApplicationController do
           end
         end
 
+        it "logs the launch" do
+          allow(Lti::LogService).to receive(:new) do
+            double("Lti::LogService").tap { |s| allow(s).to receive(:call) }
+          end
+
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+
+          expect(Lti::LogService).to have_received(:new).with(
+            tool:,
+            context: course,
+            user:,
+            placement: nil,
+            launch_type: :content_item
+          )
+        end
+
         it "returns the full path for the redirect url" do
           expect(controller).to receive(:named_context_url).with(course, :context_url, { include_host: true })
           expect(controller).to receive(:named_context_url).with(
@@ -1468,41 +1518,20 @@ RSpec.describe ApplicationController do
             "external_tool_redirect",
             { include_host: true }
           ).and_return("wrong_url")
-          allow(controller).to receive(:render)
-          allow(controller).to receive_messages(js_env: [])
-          controller.instance_variable_set(:@context, course)
           controller.send(:content_tag_redirect, course, content_tag, nil)
         end
 
         it "sets the resource_link_id correctly" do
-          allow(controller).to receive(:named_context_url).and_return("wrong_url")
-          allow(controller).to receive(:render)
-          allow(controller).to receive_messages(js_env: [])
-          controller.instance_variable_set(:@context, course)
-          allow(content_tag).to receive(:id).and_return(42)
           controller.send(:content_tag_redirect, course, content_tag, nil)
           expect(assigns[:lti_launch].params["resource_link_id"]).to eq "e62d81a8a1587cdf9d3bbc3de0ef303d6bc70d78"
         end
 
         it "sets the post message token" do
-          allow(controller).to receive(:named_context_url).and_return("wrong_url")
-          allow(controller).to receive(:render)
-          allow(controller).to receive_messages(js_env: [])
-          controller.instance_variable_set(:@context, course)
-          allow(content_tag).to receive(:id).and_return(42)
           controller.send(:content_tag_redirect, course, content_tag, nil)
           expect(assigns[:lti_launch].params["custom_test_token"]).to be_present
         end
 
         context "tool dimensions" do
-          before do
-            allow(controller).to receive(:named_context_url).and_return(tool.url)
-            allow(controller).to receive(:render)
-            allow(controller).to receive_messages(js_env: [])
-            controller.instance_variable_set(:@context, course)
-            allow(content_tag).to receive(:id).and_return(42)
-          end
-
           context "when ContentTag provides selection_width or selection_height" do
             before do
               content_tag.update(link_settings: { selection_width: 543, selection_height: 321 })
@@ -1623,7 +1652,7 @@ RSpec.describe ApplicationController do
             end
           end
 
-          context do
+          context "misc" do
             it "appends px to tool dimensions when receives numeric values" do
               tool.update(settings: { selection_width: 50, selection_height: 90 })
               controller.send(:content_tag_redirect, course, content_tag, nil)
@@ -1751,7 +1780,7 @@ RSpec.describe ApplicationController do
         ]
 
         @tool_settings.each do |setting|
-          @tool.send("#{setting}=", tool_settings(setting))
+          @tool.send(:"#{setting}=", tool_settings(setting))
         end
         @tool.save!
       end
@@ -1786,7 +1815,7 @@ RSpec.describe ApplicationController do
 
       it "all settings return canvas_icon_class if set" do
         @tool_settings.each do |setting|
-          @tool.send("#{setting}=", tool_settings(setting, true))
+          @tool.send(:"#{setting}=", tool_settings(setting, true))
           @tool.save!
 
           hash = controller.external_tool_display_hash(@tool, setting)

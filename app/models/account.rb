@@ -398,12 +398,14 @@ class Account < ActiveRecord::Base
   # Allow enabling metrics like Heap for sandboxes and other accounts without Salesforce data
   add_setting :enable_usage_metrics, boolean: true, root_only: true, default: false
 
+  add_setting :allow_observers_in_appointment_groups, boolean: true, default: false, inheritable: true
+
   def settings=(hash)
     if hash.is_a?(Hash) || hash.is_a?(ActionController::Parameters)
       hash.each do |key, val|
         key = key.to_sym
         if account_settings_options && (opts = account_settings_options[key])
-          if (opts[:root_only] && !root_account?) || (opts[:condition] && !send("#{opts[:condition]}?".to_sym))
+          if (opts[:root_only] && !root_account?) || (opts[:condition] && !send(:"#{opts[:condition]}?"))
             settings.delete key
           elsif opts[:hash]
             new_hash = {}
@@ -494,6 +496,10 @@ class Account < ActiveRecord::Base
 
   def disable_rce_media_uploads?
     disable_rce_media_uploads[:value]
+  end
+
+  def allow_observers_in_appointment_groups?
+    allow_observers_in_appointment_groups[:value] && Account.site_admin.feature_enabled?(:observer_appointment_groups)
   end
 
   def allow_gradebook_show_first_last_names?
@@ -1445,7 +1451,7 @@ class Account < ActiveRecord::Base
     can :create_tool_manually
     ##################### End legacy permission block ##########################
 
-    RoleOverride.permissions.each do |permission, _details|
+    RoleOverride.permissions.each_key do |permission|
       given do |user|
         results = cached_account_users_for(user).map do |au|
           res = au.permission_check(self, permission)
@@ -1589,8 +1595,12 @@ class Account < ActiveRecord::Base
     settings[:auth_discovery_url] = url
   end
 
-  def auth_discovery_url
+  def auth_discovery_url(_request = nil)
     settings[:auth_discovery_url]
+  end
+
+  def auth_discovery_url_options(_request)
+    {}
   end
 
   def login_handle_name=(handle_name)

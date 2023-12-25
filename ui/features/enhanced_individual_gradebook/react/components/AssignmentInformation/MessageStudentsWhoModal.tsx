@@ -20,11 +20,11 @@ import React, {useMemo} from 'react'
 import {showFlashError, showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import MessageStudentsWhoDialog, {
-  SendMessageArgs,
-  Student,
+  type SendMessageArgs,
+  type Student,
 } from '@canvas/message-students-dialog/react/MessageStudentsWhoDialog'
-import {CamelizedAssignment} from '@canvas/grading/grading'
-import {
+import type {CamelizedAssignment} from '@canvas/grading/grading.d'
+import type {
   AssignmentConnection,
   GradebookOptions,
   SortableStudent,
@@ -76,6 +76,7 @@ export default function MessageStudentsWhoModal({
         grade: submission?.grade,
         redoRequest: submission?.redoRequest,
         score: submission?.score,
+        excused: submission?.excused,
       })
 
       return filteredStudents

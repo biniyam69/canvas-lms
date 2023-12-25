@@ -109,7 +109,7 @@ class Enrollment < ActiveRecord::Base
     if course.enrollments.where(type: "ObserverEnrollment",
                                 user_id: associated_user_id,
                                 associated_user_id: user_id).exists?
-      errors.add(:associated_user_id, "Cannot observe user with another user that is being observed by the current user")
+      errors.add(:associated_user_id, "Cannot observe observer observing self")
     end
   end
 
@@ -169,8 +169,8 @@ class Enrollment < ActiveRecord::Base
   def active_student?(was = false)
     suffix = was ? "_before_last_save" : ""
 
-    %w[StudentEnrollment StudentViewEnrollment].include?(send("type#{suffix}")) &&
-      send("workflow_state#{suffix}") == "active"
+    %w[StudentEnrollment StudentViewEnrollment].include?(send(:"type#{suffix}")) &&
+      send(:"workflow_state#{suffix}") == "active"
   end
 
   def active_student_changed?

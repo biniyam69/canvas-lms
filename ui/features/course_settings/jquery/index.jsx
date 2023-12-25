@@ -20,14 +20,14 @@ import React from 'react'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import {tabIdFromElement} from './course_settings_helper'
-import tz from '@canvas/timezone'
+import * as tz from '@canvas/datetime'
 import '@canvas/jquery/jquery.ajaxJSON'
-import '@canvas/datetime' /* datetimeString, date_field */
-import '@canvas/forms/jquery/jquery.instructure_forms' /* formSubmit, fillFormData, getFormData, formErrors */
+import '@canvas/datetime/jquery' /* datetimeString, date_field */
+import '@canvas/jquery/jquery.instructure_forms' /* formSubmit, fillFormData, getFormData, formErrors */
 import 'jqueryui/dialog'
 import '@canvas/util/jquery/fixDialogButtons'
 import '@canvas/jquery/jquery.instructure_misc_plugins' /* confirmDelete, fragmentChange, showIf */
-import '@canvas/keycodes'
+import '@canvas/jquery-keycodes'
 import '@canvas/loading-image'
 import '@canvas/rails-flash-notifications'
 import '@canvas/util/templateData' /* fillTemplateData, getTemplateData */
@@ -390,8 +390,6 @@ $(document).ready(function () {
           contextId={ENV.COURSE_ID}
           contextType="Course"
           initiallySelectedGradingSchemeId={selectedGradingSchemeId}
-          // TODO: remove after grading_scheme_updates feature flag is turned on globally
-          pointsBasedGradingSchemesEnabled={!!ENV.POINTS_BASED_GRADING_SCHEMES_ENABLED}
           onChange={gradingSchemeId => handleSelectedGradingSchemeIdChanged(gradingSchemeId)}
         />,
         grading_scheme_selector
@@ -441,6 +439,23 @@ $(document).ready(function () {
   })
   $course_form.formSubmit({
     beforeSubmit(data) {
+      // If Restrict Quantitative Data is checked, then the course must have a default grading scheme selected
+      const rqdEnabled =
+        $course_form.find('#course_restrict_quantitative_data')?.attr('value') === 'true'
+      const hasCourseDefaultGradingScheme = !!$course_form
+        .find('.grading_standard_checkbox')
+        .attr('checked')
+
+      if (rqdEnabled && !hasCourseDefaultGradingScheme) {
+        $.flashError(
+          I18n.t(
+            'errors.restrict_quantitative_data',
+            'If "Restrict view of quantitative data" is enabled, then the course must have a default grading scheme enabled.'
+          )
+        )
+        return false
+      }
+
       $(this).loadingImage()
       $(this).find('.readable_license,.account_name,.term_name,.grading_scheme_set').text('...')
       $(this).find('.storage_quota_mb').text(data['course[storage_quota_mb]'])

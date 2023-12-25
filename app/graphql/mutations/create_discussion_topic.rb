@@ -25,6 +25,8 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
   argument :anonymous_state, String, required: false
   argument :context_id, ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Context")
   argument :context_type, String, required: true
+  argument :assignment, Mutations::AssignmentCreate, required: false
+
   # most arguments inherited from DiscussionBase
 
   def resolve(input:)
@@ -55,6 +57,14 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       return validation_error(I18n.t("You do not have permission to add this topic to the student to-do list."))
     end
 
+    # validate course id for discussion topic and assignment match
+    if input.key?(:assignment) && input[:assignment].present?
+      assignment_context_id = GraphQLHelpers.parse_relay_or_legacy_id(input[:assignment].to_h[:course_id], "Course")
+      if assignment_context_id != discussion_topic_context.id.to_s
+        return validation_error(I18n.t("Assignment context_id must match discussion topic context_id"))
+      end
+    end
+
     # TODO: return an error when user tries to add a todo_date to a graded discussion
 
     is_announcement = input[:is_announcement] || false
@@ -62,9 +72,11 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
     # TODO: On update, we load here instead of creating a new one.
     discussion_topic = is_announcement ? Announcement.new : DiscussionTopic.new
 
-    # This fields aren't common because they are just needed when it is a new discussion topic or announcement
+    # These fields are needed when creating a new discussion topic or announcement
     discussion_topic.context_id = discussion_topic_context.id
     discussion_topic.context_type = input[:context_type]
+    discussion_topic.user = current_user
+    discussion_topic.workflow_state = (input[:published] || is_announcement) ? "active" : "unpublished"
 
     verify_authorized_action!(discussion_topic, :create)
 
@@ -81,20 +93,23 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       return validation_error(I18n.t("You do not have permissions to modify discussion for section(s) %{section_ids}", section_ids: invalid_sections.join(", ")))
     end
 
-    process_common_inputs(input, is_announcement, discussion_topic, true)
+    process_common_inputs(input, is_announcement, discussion_topic)
     process_future_date_inputs(input[:delayed_post_at], input[:lock_at], discussion_topic)
     process_locked_parameter(input[:locked], discussion_topic)
 
-    topic_assignment = discussion_topic.build_assignment(input[:assignment].to_h) if input[:assignment]
+    if input.key?(:assignment) && input[:assignment].present?
+      working_assignment = Mutations::CreateAssignment.new(object:, context:, field: nil)
+                                                      &.resolve(input: input[:assignment])
 
-    return validation_error(I18n.t("You do not have permissions to create assignments in the provided course")) unless topic_assignment.nil? || topic_assignment&.grants_right?(current_user, :create)
-
-    discussion_topic.assignment = topic_assignment if topic_assignment&.grants_right?(current_user, :create)
-    return errors_for(discussion_topic) unless discussion_topic.save
-
-    if topic_assignment
-      return errors_for(topic_assignment) unless topic_assignment.save
+      if working_assignment[:errors].present?
+        return validation_error(working_assignment[:errors])
+      elsif working_assignment.present?
+        discussion_topic.assignment = working_assignment&.[](:assignment)
+      end
     end
+
+    discussion_topic.saved_by = :assignment if discussion_topic.assignment.present?
+    return errors_for(discussion_topic) unless discussion_topic.save!
 
     { discussion_topic: }
   rescue ActiveRecord::RecordNotFound

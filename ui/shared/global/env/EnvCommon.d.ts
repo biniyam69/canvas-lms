@@ -44,7 +44,9 @@ type Role = {
 export interface EnvCommon {
   ASSET_HOST: string
   active_brand_config_json_url: string
-  active_brand_config: object
+  active_brand_config: {
+    variables: Record<string, string>
+  }
   badge_counts?: {
     discussions: number
     assignments: number
@@ -64,6 +66,7 @@ export interface EnvCommon {
   COURSE_ROLES: Role[]
   current_user_roles: string[]
   current_user_is_student: boolean
+  current_user_is_admin: boolean
   current_user_types: string[]
   current_user_disabled_inbox: boolean
   current_user_visited_tabs: null | string[]
@@ -73,6 +76,7 @@ export interface EnvCommon {
     id: string
     label: string
   }[]
+  ACCOUNT_ID: string
   DOMAIN_ROOT_ACCOUNT_ID: string
   ROOT_ACCOUNT_ID: string
   k12: false
@@ -91,6 +95,10 @@ export interface EnvCommon {
   FULL_STORY_ENABLED: boolean
   RAILS_ENVIRONMENT: 'development' | 'CD' | 'Beta' | 'Production' | string
   IN_PACED_COURSE: boolean
+  PREFERENCES?: {
+    hide_dashcard_color_overlays: boolean
+    custom_colors: unknown
+  }
 
   SENTRY_FRONTEND?: {
     /**
@@ -194,16 +202,13 @@ export interface EnvCommon {
 export type SiteAdminFeatureId =
   | 'featured_help_links'
   | 'lti_platform_storage'
-  | 'calendar_series'
   | 'account_level_blackout_dates'
   | 'account_calendar_events'
   | 'instui_nav'
   | 'render_both_to_do_lists'
   | 'course_paces_redesign'
   | 'course_paces_for_students'
-  | 'module_publish_menu'
   | 'explicit_latex_typesetting'
-  | 'dev_key_oidc_alert'
   | 'media_links_use_attachment_id'
   | 'permanent_page_links'
   | 'differentiated_modules'
@@ -220,6 +225,7 @@ export type RootAccountFeatureId =
   | 'granular_permissions_manage_users'
   | 'create_course_subaccount_picker'
   | 'lti_deep_linking_module_index_menu_modal'
+  | 'lti_dynamic_registration'
   | 'lti_multiple_assignment_deep_linking'
   | 'lti_overwrite_user_url_input_select_content_dialog'
   | 'buttons_and_icons_root_account'

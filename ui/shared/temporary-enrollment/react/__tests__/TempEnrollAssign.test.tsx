@@ -19,14 +19,35 @@
 import React from 'react'
 import {fireEvent, render, waitFor, within} from '@testing-library/react'
 import {
+  defaultRoleChoice,
+  deleteMultipleEnrollmentsByNoMatch,
   getEnrollmentAndUserProps,
+  getStoredData,
+  isEnrollmentMatch,
+  isMatchFound,
+  type Props,
   TempEnrollAssign,
   tempEnrollAssignData,
 } from '../TempEnrollAssign'
 import fetchMock from 'fetch-mock'
-import {PROVIDER, RECIPIENT, User} from '../types'
+import {
+  type Enrollment,
+  MAX_ALLOWED_COURSES_PER_PAGE,
+  PROVIDER,
+  RECIPIENT,
+  type Role,
+  type User,
+} from '../types'
+import {deleteEnrollment} from '../api/enrollment'
+import * as localStorageUtils from '../util/helpers'
+import {getDayBoundaries} from '../util/helpers'
+import MockDate from 'mockdate'
 
 const backCall = jest.fn()
+
+jest.mock('../api/enrollment', () => ({
+  deleteEnrollment: jest.fn(),
+}))
 
 const falsePermissions = {
   teacher: true,
@@ -49,9 +70,10 @@ const enrollmentsByCourse = [
     id: '1',
     name: 'Apple Music',
     workflow_state: 'available',
+    account_id: '1',
     enrollments: [
       {
-        role_id: '1',
+        role_id: '92',
       },
     ],
     sections: [
@@ -64,7 +86,7 @@ const enrollmentsByCourse = [
   },
 ]
 
-const props = {
+const props: Props = {
   enrollment: {
     email: 'mel@email.com',
     id: '2',
@@ -79,8 +101,14 @@ const props = {
   } as User,
   permissions: truePermissions,
   roles: [
-    {id: '91', label: 'Student', base_role_name: 'StudentEnrollment'},
-    {id: '92', label: 'Custom Teacher Role', base_role_name: 'TeacherEnrollment'},
+    {id: '91', name: 'StudentEnrollment', label: 'Student', base_role_name: 'StudentEnrollment'},
+    {id: '92', name: 'TeacherEnrollment', label: 'Teacher', base_role_name: 'TeacherEnrollment'},
+    {
+      id: '93',
+      name: 'Custom Teacher Enrollment',
+      label: 'Teacher',
+      base_role_name: 'TeacherEnrollment',
+    },
   ],
   goBack: backCall,
   setEnrollmentStatus: jest.fn(),
@@ -90,7 +118,7 @@ const props = {
 }
 
 const ENROLLMENTS_URI = encodeURI(
-  `/api/v1/users/${props.user.id}/courses?enrollment_state=active&include[]=sections`
+  `/api/v1/users/${props.user.id}/courses?enrollment_state[]=active&enrollment_state[]=completed&include[]=sections&per_page=${MAX_ALLOWED_COURSES_PER_PAGE}&account_id=${enrollmentsByCourse[0].account_id}`
 )
 
 // converts local time to UTC time based on a given date and time
@@ -103,13 +131,31 @@ function localToUTCTime(date: string, time: string): string {
   return `${String(utcHours).padStart(2, '0')}:${String(utcMinutes).padStart(2, '0')}`
 }
 
+function formatDateToLocalString(utcDateStr: string) {
+  const date = new Date(utcDateStr)
+  return {
+    date: new Intl.DateTimeFormat(undefined, {dateStyle: 'long'}).format(date),
+    time: new Intl.DateTimeFormat(undefined, {timeStyle: 'short', hour12: true}).format(date),
+  }
+}
+
 describe('TempEnrollAssign', () => {
+  beforeAll(() => {
+    // @ts-expect-error
+    window.ENV = {ACCOUNT_ID: '1'}
+  })
+
   afterEach(() => {
     fetchMock.reset()
     fetchMock.restore()
     jest.clearAllMocks()
     // ensure a clean state before each tests
     localStorage.clear()
+  })
+
+  afterAll(() => {
+    // @ts-expect-error
+    window.ENV = {}
   })
 
   describe('With Successful API calls', () => {
@@ -120,7 +166,7 @@ describe('TempEnrollAssign', () => {
     it('initializes with ROLE as the default role in the summary', async () => {
       const {findByText} = render(<TempEnrollAssign {...props} />)
       const defaultMessage = await findByText(
-        /Canvas will enroll .+ as a .+ in .+’s selected courses from .+ - .+/
+        /Canvas will enroll .+ as a .+ in the selected courses of .+ from .+ - .+/
       )
 
       expect(defaultMessage).toBeInTheDocument()
@@ -150,7 +196,7 @@ describe('TempEnrollAssign', () => {
       const screen = render(<TempEnrollAssign {...props} />)
       const roleSelect = await screen.findByPlaceholderText('Select a Role')
 
-      expect(screen.getByText(/Canvas will enroll Melvin as a ROLE/)).toBeInTheDocument()
+      expect(screen.getByText(/Canvas will enroll Melvin as a Teacher/)).toBeInTheDocument()
 
       fireEvent.click(roleSelect)
 
@@ -173,7 +219,7 @@ describe('TempEnrollAssign', () => {
       fireEvent.blur(endDate)
 
       expect((await findByTestId('temp-enroll-summary')).textContent).toBe(
-        'Canvas will enroll Melvin as a ROLE in John Smith’s selected courses from Sun, Apr 10, 2022, 12:00 AM - Tue, Apr 12, 2022, 11:59 PM'
+        'Canvas will enroll Melvin as a Teacher in the selected courses of John Smith from Sun, Apr 10, 2022, 12:00 AM - Tue, Apr 12, 2022, 11:59 PM'
       )
     })
 
@@ -210,7 +256,7 @@ describe('TempEnrollAssign', () => {
         })
 
         const input = screen.getByPlaceholderText('Select a Role')
-        expect(input).toHaveValue('Custom Teacher Role')
+        expect(input).toHaveValue('Teacher')
       })
 
       it('saves to localStorage on role select', async () => {
@@ -347,6 +393,335 @@ describe('TempEnrollAssign', () => {
 
       expect(enrollmentProps).toEqual(props.enrollment)
       expect(userProps).toEqual(props.user)
+    })
+  })
+
+  describe('props.tempEnrollmentsPairing', () => {
+    let tempProps: Props
+    const startAt = '2022-11-09T05:30:00Z'
+    const endAt = '2022-12-31T07:30:00Z'
+    const tempEnrollmentsPairingMock: Enrollment[] = [
+      {
+        course_id: '1',
+        course_section_id: '1',
+        role_id: '92',
+        start_at: startAt,
+        end_at: endAt,
+      },
+    ] as Enrollment[]
+
+    beforeEach(() => {
+      fetchMock.get(ENROLLMENTS_URI, enrollmentsByCourse)
+      tempProps = {
+        ...props,
+        tempEnrollmentsPairing: tempEnrollmentsPairingMock,
+      }
+    })
+
+    it('should set the role correctly when a matching role is found', async () => {
+      const {findByPlaceholderText} = render(<TempEnrollAssign {...tempProps} />)
+      const roleSelect = (await findByPlaceholderText('Select a Role')) as HTMLInputElement
+      expect(roleSelect.value).toBe('Teacher')
+    })
+
+    it('should choose the default if no role is found', async () => {
+      const doNotFindThisRoleId: Role = {
+        id: '999',
+        base_role_name: 'SomeEnrollment',
+        name: 'SomeEnrollment',
+        label: 'Test',
+      }
+      tempProps.roles = [doNotFindThisRoleId]
+      const {findByPlaceholderText, findByTestId} = render(<TempEnrollAssign {...tempProps} />)
+      const roleSelect = (await findByPlaceholderText('Select a Role')) as HTMLInputElement
+      expect(roleSelect.value).toBe('')
+      expect((await findByTestId('temp-enroll-summary')).textContent).toMatch(
+        /^Canvas will enroll Melvin as a ROLE/
+      )
+    })
+
+    it('should set the start date and time correctly', async () => {
+      const localStartDate = formatDateToLocalString(startAt)
+      const {findByLabelText, getByText} = render(<TempEnrollAssign {...tempProps} />)
+      const startDate = (await findByLabelText('Begins On')) as HTMLInputElement
+      const startDateContainer = getByText('Start Date for Melvin').closest('fieldset')
+      const {findByLabelText: findByLabelTextWithinStartDate} = within(
+        startDateContainer as HTMLElement
+      )
+      const startTime = (await findByLabelTextWithinStartDate('Time')) as HTMLInputElement
+      expect(startDate.value).toBe(localStartDate.date)
+      expect(startTime.value).toBe(localStartDate.time)
+    })
+
+    it('should set the end date and time correctly', async () => {
+      const localEndDate = formatDateToLocalString(endAt)
+      const {findByLabelText, getByText} = render(<TempEnrollAssign {...tempProps} />)
+      const endDate = (await findByLabelText('Until')) as HTMLInputElement
+      const endDateContainer = getByText('End Date for Melvin').closest('fieldset')
+      const {findByLabelText: findByLabelTextWithinEndDate} = within(
+        endDateContainer as HTMLElement
+      )
+      const endTime = (await findByLabelTextWithinEndDate('Time')) as HTMLInputElement
+      expect(endDate.value).toBe(localEndDate.date)
+      expect(endTime.value).toBe(localEndDate.time)
+    })
+  })
+
+  describe('isEnrollmentMatch', () => {
+    let mockTempEnrollment: Enrollment
+
+    beforeEach(() => {
+      mockTempEnrollment = {
+        course_id: '',
+        end_at: '',
+        id: '',
+        start_at: '',
+        user_id: '',
+        enrollment_state: '',
+        temporary_enrollment_pairing_id: 0,
+        temporary_enrollment_source_user_id: 0,
+        type: '',
+        course_section_id: '7',
+        user: {
+          id: '1',
+        } as User,
+        role_id: '20',
+      }
+    })
+
+    it('should return true when enrollment matches', () => {
+      const result = isEnrollmentMatch(mockTempEnrollment, '7', '1', '20')
+      expect(result).toBe(true)
+    })
+
+    it('should return false when course_section_id does not match', () => {
+      const result = isEnrollmentMatch(mockTempEnrollment, '8', '1', '20')
+      expect(result).toBe(false)
+    })
+
+    it('should return false when user ID does not match', () => {
+      const result = isEnrollmentMatch(mockTempEnrollment, '7', '2', '20')
+      expect(result).toBe(false)
+    })
+
+    it('should return false when role ID does not match', () => {
+      const result = isEnrollmentMatch(mockTempEnrollment, '7', '1', '21')
+      expect(result).toBe(false)
+    })
+  })
+
+  describe('isMatchFound', () => {
+    let mockTempEnrollment: Enrollment
+
+    beforeEach(() => {
+      mockTempEnrollment = {
+        course_id: '8',
+        end_at: '',
+        id: '92',
+        start_at: '',
+        user_id: '1',
+        enrollment_state: 'active',
+        temporary_enrollment_pairing_id: 0,
+        temporary_enrollment_source_user_id: 0,
+        type: '',
+        course_section_id: '7',
+        user: {
+          id: '1',
+        } as User,
+        role_id: '20',
+      }
+    })
+
+    it('should return false if a match is found', () => {
+      const sectionIds = ['7', '8', '9']
+      const userId = '1'
+      const roleId = '20'
+      expect(isMatchFound(sectionIds, mockTempEnrollment, userId, roleId)).toBe(true)
+    })
+
+    it('should return true if no match is found', () => {
+      const sectionIds = ['22', '55', '100']
+      const userId = '1'
+      const roleId = '20'
+      expect(isMatchFound(sectionIds, mockTempEnrollment, userId, roleId)).toBe(false)
+    })
+
+    it('should return true if user ID does not match', () => {
+      const sectionIds = ['7', '8', '9']
+      const nonMatchingUserId = '2'
+      const roleId = '20'
+      expect(isMatchFound(sectionIds, mockTempEnrollment, nonMatchingUserId, roleId)).toBe(false)
+    })
+
+    it('should return true if role ID does not match', () => {
+      const sectionIds = ['7', '8', '9']
+      const userId = '1'
+      const nonMatchingRoleId = '30'
+      expect(isMatchFound(sectionIds, mockTempEnrollment, userId, nonMatchingRoleId)).toBe(false)
+    })
+
+    it('should return true if sectionIds array is empty', () => {
+      const sectionIds: string[] = []
+      const userId = '1'
+      const roleId = '20'
+      expect(isMatchFound(sectionIds, mockTempEnrollment, userId, roleId)).toBe(false)
+    })
+  })
+
+  describe('processEnrollmentDeletions', () => {
+    let mockTempEnrollments: Enrollment[]
+
+    beforeEach(() => {
+      mockTempEnrollments = [
+        {
+          course_id: '8',
+          end_at: '',
+          id: '92',
+          start_at: '',
+          user_id: '1',
+          enrollment_state: 'active',
+          temporary_enrollment_pairing_id: 0,
+          temporary_enrollment_source_user_id: 0,
+          type: '',
+          course_section_id: '7',
+          user: {
+            id: '1',
+          } as User,
+          role_id: '20',
+        },
+      ]
+      ;(deleteEnrollment as jest.Mock).mockResolvedValue({
+        response: {status: 204, ok: true},
+        json: [],
+      })
+    })
+
+    it('should call deleteEnrollment for matching criteria', async () => {
+      const sectionIds = ['55', '220', '19']
+      const userId = '1'
+      const roleId = '20'
+      const promises = deleteMultipleEnrollmentsByNoMatch(
+        mockTempEnrollments,
+        sectionIds,
+        userId,
+        roleId
+      )
+      expect(promises).toHaveLength(1)
+      await Promise.all(promises)
+      expect(deleteEnrollment).toHaveBeenCalledTimes(1)
+    })
+
+    it('should not call deleteEnrollment for non-matching criteria', async () => {
+      const sectionIds = ['7', '55', '220', '19']
+      const userId = '1'
+      const roleId = '20'
+      const promises = deleteMultipleEnrollmentsByNoMatch(
+        mockTempEnrollments,
+        sectionIds,
+        userId,
+        roleId
+      )
+      expect(promises).toHaveLength(0)
+      await Promise.all(promises)
+      expect(deleteEnrollment).toHaveBeenCalledTimes(0)
+    })
+  })
+
+  describe('getStoredData', () => {
+    let mockRoles: Role[]
+
+    function mockGetFromLocalStorage<T extends object>(data: T | undefined) {
+      jest
+        .spyOn(localStorageUtils, 'getFromLocalStorage')
+        .mockImplementation((storageKey: string) =>
+          storageKey === tempEnrollAssignData ? data : undefined
+        )
+    }
+
+    beforeEach(() => {
+      mockRoles = [
+        {
+          id: '19',
+          name: 'StudentEnrollment',
+          label: 'Student',
+          base_role_name: 'StudentEnrollment',
+        },
+        {
+          id: '20',
+          name: 'TeacherEnrollment',
+          label: 'Teacher',
+          base_role_name: 'TeacherEnrollment',
+        },
+        {
+          id: '21',
+          name: 'TaEnrollment',
+          label: 'TA',
+          base_role_name: 'TaEnrollment',
+        },
+        {
+          id: '22',
+          name: 'DesignerEnrollment',
+          label: 'Designer',
+          base_role_name: 'DesignerEnrollment',
+        },
+        {
+          id: '23',
+          name: 'ObserverEnrollment',
+          label: 'Observer',
+          base_role_name: 'ObserverEnrollment',
+        },
+      ]
+      MockDate.set('2022-01-01T00:00:00.000Z')
+    })
+
+    afterEach(() => {
+      MockDate.reset()
+    })
+
+    it('should return default values when no data is in local storage', () => {
+      mockGetFromLocalStorage({})
+      const result = getStoredData(mockRoles)
+      const [expectedDefaultStartDate, expectedDefaultEndDate] = getDayBoundaries()
+      const expectedTeacherRoleChoice = {id: '20', name: 'Teacher'}
+      expect(result.roleChoice).toEqual(expectedTeacherRoleChoice)
+      expect(result.startDate).toEqual(expectedDefaultStartDate)
+      expect(result.endDate).toEqual(expectedDefaultEndDate)
+    })
+
+    it('should correctly use local storage data when available', () => {
+      const mockLocalStorageData = {
+        roleChoice: {id: '20', name: 'Teacher'},
+        startDate: '2022-01-01T00:00:00.000Z',
+        endDate: '2022-01-31T00:00:00.000Z',
+      }
+      mockGetFromLocalStorage(mockLocalStorageData)
+      const result = getStoredData(mockRoles)
+      expect(result.roleChoice).toEqual(mockLocalStorageData.roleChoice)
+      expect(result.startDate).toEqual(new Date(mockLocalStorageData.startDate))
+      expect(result.endDate).toEqual(new Date(mockLocalStorageData.endDate))
+    })
+
+    it('should handle date conversions correctly', () => {
+      const mockLocalStorageData = {
+        startDate: '2022-01-01T00:00:00.000Z',
+        endDate: '2022-01-31T00:00:00.000Z',
+      }
+      mockGetFromLocalStorage(mockLocalStorageData)
+      const result = getStoredData(mockRoles)
+      expect(result.startDate).toEqual(new Date(mockLocalStorageData.startDate))
+      expect(result.endDate).toEqual(new Date(mockLocalStorageData.endDate))
+    })
+
+    it('should set the roleChoice to defaultRoleChoice when no teacher role is present', () => {
+      const rolesWithoutTeacher = mockRoles.filter(
+        role => role.base_role_name !== 'TeacherEnrollment'
+      )
+      mockGetFromLocalStorage({}) // Mock with empty object
+      const result = getStoredData(rolesWithoutTeacher)
+      const [expectedDefaultStartDate, expectedDefaultEndDate] = getDayBoundaries()
+      expect(result.roleChoice).toEqual(defaultRoleChoice)
+      expect(result.startDate).toEqual(expectedDefaultStartDate)
+      expect(result.endDate).toEqual(expectedDefaultEndDate)
     })
   })
 })

@@ -20,15 +20,43 @@
 module Lti
   module IMS
     class DynamicRegistrationController < ApplicationController
-      include Lti::Oidc
-
       REGISTRATION_TOKEN_EXPIRATION = 1.hour
 
       before_action :require_dynamic_registration_flag
       before_action :require_user, except: [:create]
 
-      def redirect_to_tool_registration
-        tool_registration_url = params.require(:registration_url) # redirect to this
+      # This skip_before_action is required because :load_user will
+      # attempt to find the bearer token, which is not stored with
+      # the other Canvas tokens.
+      skip_before_action :load_user, only: [:create]
+
+      def registration_token
+        uuid = SecureRandom.uuid
+        current_time = DateTime.now.iso8601
+        user_id = @current_user.id
+        root_account_global_id = @domain_root_account.global_id
+        token = Canvas::Security.create_jwt(
+          {
+            uuid:,
+            initiated_at: current_time,
+            user_id:,
+            root_account_global_id:
+          },
+          REGISTRATION_TOKEN_EXPIRATION.from_now
+        )
+
+        render json: {
+          uuid:,
+          oidc_configuration_url:,
+          token:
+        }
+      end
+
+      def registration_by_uuid
+        render json: Lti::IMS::Registration.find_by(guid: params[:registration_uuid])
+      end
+
+      def oidc_configuration_url
         issuer_url = Canvas::Security.config["lti_iss"]
         parsed_issuer = Addressable::URI.parse(issuer_url)
         issuer_domain = if Rails.env.development?
@@ -39,16 +67,35 @@ module Lti
         issuer_protocol = parsed_issuer.scheme
         issuer_port = parsed_issuer.port
 
+        @domain_root_account.global_id
+        openid_configuration_url(protocol: issuer_protocol, port: issuer_port, host: issuer_domain)
+      end
+
+      def update_registration_overlay
+        registration = Lti::IMS::Registration.find(params[:registration_id])
+        # TODO: validate overlay against a schema
+        registration.registration_overlay = JSON.parse(request.body.read)
+        registration.save!
+        registration.update_external_tools!
+        render json: registration
+      end
+
+      def redirect_to_tool_registration
+        tool_registration_url = params.require(:registration_url) # redirect to this
+        uuid = SecureRandom.uuid
+
         current_time = DateTime.now.iso8601
         user_id = @current_user.id
         root_account_global_id = @domain_root_account.global_id
-        oidc_configuration_url = openid_configuration_url(protocol: issuer_protocol, port: issuer_port, host: issuer_domain)
-        jwt = Canvas::Security.create_jwt({
-                                            initiated_at: current_time,
-                                            user_id:,
-                                            root_account_global_id:
-                                          },
-                                          REGISTRATION_TOKEN_EXPIRATION.from_now)
+        jwt = Canvas::Security.create_jwt(
+          {
+            uuid:,
+            initiated_at: current_time,
+            user_id:,
+            root_account_global_id:
+          },
+          REGISTRATION_TOKEN_EXPIRATION.from_now
+        )
 
         redirection_url = Addressable::URI.parse(tool_registration_url)
         redirection_url_params = redirection_url.query_values || {}
@@ -61,23 +108,28 @@ module Lti
       end
 
       def create
-        token_param = params.require(:registration_token)
-        jwt = Canvas::Security.decode_jwt(token_param)
+        access_token = AuthenticationMethods.access_token(request)
+        jwt = Canvas::Security.decode_jwt(access_token)
 
-        expected_jwt_keys = %w[user_id initiated_at root_account_global_id exp]
+        expected_jwt_keys = %w[user_id initiated_at root_account_global_id exp uuid]
 
         if jwt.keys.sort != expected_jwt_keys.sort
-          respond_with_error(:unprocessable_entity, "JWT did not include expected contents")
+          respond_with_error(:unauthorized, "JWT did not include expected contents")
+          return
         end
 
         root_account = Account.find(jwt["root_account_global_id"])
-        respond_with_error(:not_found, "Specified account does not exist") unless root_account
+        if root_account.nil?
+          Rails.logger.info "Couldn't find root account: #{jwt.inspect}"
+          respond_with_error(:not_found, "Specified account does not exist")
+          return
+        end
 
         root_account.shard.activate do
           registration_params = params.permit(*expected_registration_params)
           registration_params["lti_tool_configuration"] = registration_params["https://purl.imsglobal.org/spec/lti-tool-configuration"]
           registration_params.delete("https://purl.imsglobal.org/spec/lti-tool-configuration")
-          scopes = registration_params["scope"].split(",")
+          scopes = registration_params["scope"].split
           registration_params.delete("scope")
 
           developer_key = DeveloperKey.new(
@@ -86,12 +138,14 @@ module Lti
             redirect_uris: registration_params["redirect_uris"],
             public_jwk_url: registration_params["jwks_uri"],
             oidc_initiation_url: registration_params["initiate_login_uri"],
-            is_lti_key: true
+            is_lti_key: true,
+            scopes:
           )
           registration = Lti::IMS::Registration.new(
             developer_key:,
             root_account_id: root_account.id,
             scopes:,
+            guid: jwt["uuid"],
             **registration_params
           )
 
@@ -100,11 +154,27 @@ module Lti
             registration.save!
           end
 
-          render json: registration if registration.persisted?
+          render_registration(registration, developer_key) if registration.persisted?
         end
       end
 
       private
+
+      def render_registration(registration, developer_key)
+        render json: {
+          client_id: developer_key.global_id.to_s,
+          application_type: registration.application_type,
+          grant_types: registration.grant_types,
+          initiate_login_uri: registration.initiate_login_uri,
+          redirect_uris: registration.redirect_uris,
+          response_types: registration.response_types,
+          client_name: registration.client_name,
+          jwks_uri: registration.jwks_uri,
+          token_endpoint_auth_method: registration.token_endpoint_auth_method,
+          scope: registration.scopes.join(" "),
+          "https://purl.imsglobal.org/spec/lti-tool-configuration": registration.lti_tool_configuration
+        }
+      end
 
       def respond_with_error(status_code, message)
         head status_code
@@ -135,8 +205,13 @@ module Lti
             { messages: [:type, :target_link_uri, :label, :icon_uri, { custom_parameters: ArbitraryStrongishParams::ANYTHING }, { roles: [] }, { placements: [] }] },
             { claims: [] },
             :target_link_uri,
+            :custom_parameters,
+            "https://#{Lti::IMS::Registration::CANVAS_EXTENSION_LABEL}/lti/privacy_level"
           ] },
-          :target_link_uri,
+          :client_uri,
+          :logo_uri,
+          :tos_uri,
+          :policy_uri,
         ]
       end
     end

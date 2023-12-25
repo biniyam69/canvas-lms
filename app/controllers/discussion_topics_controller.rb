@@ -255,6 +255,8 @@ class DiscussionTopicsController < ApplicationController
   include K5Mode
   include DiscussionTopicsHelper
 
+  ANONYMOUS_STATES = ["full_anonymity", "partial_anonymity"].freeze
+
   # @API List discussion topics
   #
   # Returns the paginated list of discussion topics for this course or group.
@@ -400,7 +402,7 @@ class DiscussionTopicsController < ApplicationController
         }
         fetch_params[:include] = ["sections_user_count", "sections"] if @context.is_a?(Course)
 
-        discussion_topics_fetch_url = send("api_v1_#{@context.class.to_s.downcase}_discussion_topics_path", fetch_params)
+        discussion_topics_fetch_url = send(:"api_v1_#{@context.class.to_s.downcase}_discussion_topics_path", fetch_params)
         (scope.count / fetch_params[:per_page].to_f).ceil.times do |i|
           url = discussion_topics_fetch_url.gsub(fetch_params[:page], (i + 1).to_s)
           prefetch_xhr(url, id: "prefetched_discussion_topic_page_#{i}")
@@ -457,9 +459,9 @@ class DiscussionTopicsController < ApplicationController
       end
 
       InstStatsd::Statsd.increment("discussion_topic.index.visit")
-      InstStatsd::Statsd.count("discussion_topic.index.visit.pinned", @topics&.select(&:pinned)&.count)
+      InstStatsd::Statsd.count("discussion_topic.index.visit.pinned", @topics&.count(&:pinned))
       InstStatsd::Statsd.count("discussion_topic.index.visit.discussions", @topics&.length)
-      InstStatsd::Statsd.count("discussion_topic.index.visit.closed_for_comments", @topics&.select(&:locked)&.count)
+      InstStatsd::Statsd.count("discussion_topic.index.visit.closed_for_comments", @topics&.count(&:locked))
 
       format.json do
         log_api_asset_access(["topics", @context], "topics", "other")
@@ -516,7 +518,7 @@ class DiscussionTopicsController < ApplicationController
     return render_unauthorized_action unless @topic.visible_for?(@current_user)
 
     @context.try(:require_assignment_group) unless @topic.is_announcement
-    can_set_group_category = @context.respond_to?(:group_categories) && @context.grants_right?(@current_user, session, :manage) # i.e. not a student
+    can_set_group_category = ANONYMOUS_STATES.exclude?(@topic.anonymous_state) && @context.respond_to?(:group_categories) && @context.grants_right?(@current_user, session, :manage) # i.e. not anonymous and not a student
     hash = {
       URL_ROOT: named_context_url(@context, :api_v1_context_discussion_topics_url),
       PERMISSIONS: {
@@ -619,7 +621,6 @@ class DiscussionTopicsController < ApplicationController
       allow_student_anonymous_discussion_topics: @context.allow_student_anonymous_discussion_topics,
       context_is_not_group: !@context.is_a?(Group),
       GRADING_SCHEME_UPDATES_ENABLED: Account.site_admin.feature_enabled?(:grading_scheme_updates),
-      POINTS_BASED_GRADING_SCHEMES_ENABLED: Account.site_admin.feature_enabled?(:points_based_grading_schemes),
     }
 
     post_to_sis = Assignment.sis_grade_export_enabled?(@context)
@@ -754,7 +755,7 @@ class DiscussionTopicsController < ApplicationController
     if @context.feature_enabled?(:react_discussions_post)
       env_hash = {
         per_page: 20,
-        isolated_view_initial_page_size: 5,
+        split_screen_view_initial_page_size: 5,
         current_page: 0
       }
       if params[:entry_id]
@@ -831,8 +832,6 @@ class DiscussionTopicsController < ApplicationController
                manual_mark_as_read: @current_user&.manual_mark_as_read?,
                discussion_topic_menu_tools: external_tools_display_hashes(:discussion_topic_menu),
                rce_mentions_in_discussions: @context.feature_enabled?(:react_discussions_post) && !@topic.anonymous?,
-               isolated_view: Account.site_admin.feature_enabled?(:isolated_view),
-               split_screen_view: Account.site_admin.feature_enabled?(:split_screen_view),
                discussion_grading_view: Account.site_admin.feature_enabled?(:discussion_grading_view),
                draft_discussions: Account.site_admin.feature_enabled?(:draft_discussions),
                discussion_entry_version_history: Account.site_admin.feature_enabled?(:discussion_entry_version_history),
@@ -1378,10 +1377,7 @@ class DiscussionTopicsController < ApplicationController
     end
 
     # only full_anonymity and partial_anonymity can be stored. the rest will be nil'ed out
-    if is_new &&
-       !params[:anonymous_state].nil? &&
-       !(params[:anonymous_state] == "full_anonymity" || params[:anonymous_state] == "partial_anonymity")
-
+    if is_new && params[:anonymous_state].present? && ANONYMOUS_STATES.exclude?(params[:anonymous_state])
       params[:anonymous_state] = nil
     end
 
@@ -1426,6 +1422,10 @@ class DiscussionTopicsController < ApplicationController
       if params.include?(:anonymous_state) && @topic.anonymous_state != params[:anonymous_state]
         @errors[:anonymous_state] = t(:error_anonymous_state_unauthorized_update,
                                       "You are not able to update the anonymous state of a discussion")
+      end
+      if ANONYMOUS_STATES.include?(@topic.anonymous_state) && params[:group_category_id]
+        @errors[:anonymous_state] = t(:error_anonymous_state_groups_update,
+                                      "Group discussions cannot be anonymous.")
       end
       prior_version = DiscussionTopic.find(@topic.id)
       verify_specific_section_visibilities # Make sure user actually has perms to modify this

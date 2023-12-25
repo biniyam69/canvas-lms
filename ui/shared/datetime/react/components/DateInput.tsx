@@ -18,8 +18,8 @@
 
 import {useScope as useI18nScope} from '@canvas/i18n'
 import React, {useRef, useCallback, useEffect, useState} from 'react'
-import moment, {Moment} from 'moment-timezone'
-import tz from '@canvas/timezone'
+import moment, {type Moment} from 'moment-timezone'
+import * as tz from '../../index'
 import {AccessibleContent} from '@instructure/ui-a11y-content'
 import {Calendar} from '@instructure/ui-calendar'
 import {DateInput} from '@instructure/ui-date-input'
@@ -197,8 +197,8 @@ export default function CanvasDateInput({
     const inputEmpty = inputValue?.length === 0
     return inputEmpty
       ? false
-      : internalMessages.filter(m => m.type === 'error').length > 0 || tz.parse(inputValue) === null
-  }, [inputValue, internalMessages])
+      : internalMessages.filter(m => m.type === 'error').length > 0 || !renderedMoment.isValid()
+  }, [inputValue, internalMessages, renderedMoment])
 
   const isDifferentMoment = useCallback(
     (firstMoment: Moment | null, secondMoment: Moment | null) => {

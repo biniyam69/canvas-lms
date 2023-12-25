@@ -98,7 +98,7 @@ module ModulesSettingsTray
   end
 
   def lock_until_date_selector
-    "[data-testid='lock-until-input'] #Selectable_0"
+    "//*[@data-testid = 'lock-until-input']//*[contains(@class,'-dateInput')]//input"
   end
 
   def lock_until_input_selector
@@ -106,7 +106,7 @@ module ModulesSettingsTray
   end
 
   def lock_until_time_selector
-    "[data-testid='lock-until-input'] #Select_0"
+    "//*[@data-testid = 'lock-until-input']//*[contains(@class, '-select')]//input"
   end
 
   def module_name_input_selector
@@ -126,7 +126,7 @@ module ModulesSettingsTray
   end
 
   def prerequisites_dropdown_selector
-    "#prerequisite"
+    "//*[starts-with(@id, 'prerequisite-')]"
   end
 
   def prerequisite_message_selector(context_module)
@@ -134,19 +134,19 @@ module ModulesSettingsTray
   end
 
   def remove_prerequisite_button_selector
-    "//button[.//*[contains(text(), 'Remove Prerequisite')]]"
+    "//button[.//*[starts-with(text(), 'Remove') and ends-with(text(), 'Prerequisite')]]"
   end
 
   def remove_requirement_button_selector
-    "//button[.//*[.='Remove Requirement']]"
+    "//button[.//*[contains(text(), 'Content Requirement')]]"
   end
 
   def requirement_item_selector
-    "#requirement-item"
+    "//*[starts-with(@id, 'requirement-item-')]"
   end
 
   def requirement_type_selector
-    "#requirement-type"
+    "//*[starts-with(@id, 'requirement-type-')]"
   end
 
   def sequential_order_checkbox_selector
@@ -255,7 +255,7 @@ module ModulesSettingsTray
   end
 
   def lock_until_date
-    f(lock_until_date_selector)
+    fxpath(lock_until_date_selector)
   end
 
   def lock_until_input
@@ -263,7 +263,7 @@ module ModulesSettingsTray
   end
 
   def lock_until_time
-    f(lock_until_time_selector)
+    fxpath(lock_until_time_selector)
   end
 
   def module_name_input
@@ -283,7 +283,7 @@ module ModulesSettingsTray
   end
 
   def prerequisites_dropdown
-    ff(prerequisites_dropdown_selector)
+    ffxpath(prerequisites_dropdown_selector)
   end
 
   def prerequisite_message(context_module)
@@ -299,11 +299,11 @@ module ModulesSettingsTray
   end
 
   def requirement_item
-    ff(requirement_item_selector)
+    ffxpath(requirement_item_selector)
   end
 
   def requirement_type
-    ff(requirement_type_selector)
+    ffxpath(requirement_type_selector)
   end
 
   def sequential_order_checkbox

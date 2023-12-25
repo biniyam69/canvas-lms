@@ -104,11 +104,20 @@ describe Mutations::CreateDiscussionTopic do
               name
               pointsPossible
               gradingType
+              groupSet {
+                _id
+              }
               peerReviews {
                 anonymousReviews
                 automaticReviews
                 count
                 enabled
+              }
+              assignmentOverrides {
+                nodes {
+                  _id
+                  title
+                }
               }
             }
           }
@@ -853,6 +862,8 @@ describe Mutations::CreateDiscussionTopic do
       title = "Graded Discussion"
       message = "Lorem ipsum..."
       published = true
+      student = @course.enroll_student(User.create!, enrollment_state: "active").user
+      group_category = @course.group_categories.create! name: "foo"
 
       query = <<~GQL
         contextId: "#{@course.id}"
@@ -860,21 +871,26 @@ describe Mutations::CreateDiscussionTopic do
         title: "#{title}"
         message: "#{message}"
         published: #{published}
+        groupCategoryId: "#{group_category.id}"
         assignment: {
-          courseId: "1",
-            name: "#{title}",
-            pointsPossible: 15,
-            gradingType: percent,
-            postToSis: true,
-            peerReviews: {
-              anonymousReviews: true,
-              automaticReviews: true,
-              count: 2,
-              enabled: true,
-              intraReviews: true,
-              dueAt: "#{5.days.from_now.iso8601}",
-            }
+          courseId: "#{@course.id}",
+          name: "#{title}",
+          pointsPossible: 15,
+          gradingType: percent,
+          postToSis: true,
+          groupCategoryId: "#{group_category.id}"
+          peerReviews: {
+            anonymousReviews: true,
+            automaticReviews: true,
+            count: 2,
+            enabled: true,
+            intraReviews: true,
+            dueAt: "#{5.days.from_now.iso8601}",
           }
+          assignmentOverrides: {
+            studentIds: ["#{student.id}"]
+          }
+        }
       GQL
 
       result = execute_with_input_with_assignment(query)
@@ -888,10 +904,59 @@ describe Mutations::CreateDiscussionTopic do
         expect(discussion_topic["assignment"]["peerReviews"]["anonymousReviews"]).to be true
         expect(discussion_topic["assignment"]["peerReviews"]["automaticReviews"]).to be true
         expect(discussion_topic["assignment"]["peerReviews"]["count"]).to eq 2
+        expect(discussion_topic["assignment"]["assignmentOverrides"]["nodes"]).to match([{ "_id" => assignment.assignment_overrides.first.id.to_s, "title" => assignment.assignment_overrides.first.title }])
         expect(discussion_topic["assignment"]["_id"]).to eq assignment.id.to_s
+        expect(discussion_topic["assignment"]["groupSet"]["_id"]).to eq group_category.id.to_s
         expect(discussion_topic["_id"]).to eq assignment.discussion_topic.id.to_s
         expect(DiscussionTopic.count).to eq 1
         expect(DiscussionTopic.last.assignment.post_to_sis).to be true
+      end
+    end
+
+    it "successfully creates a graded discussion topic with a group override" do
+      context_type = "Course"
+      title = "Graded Discussion"
+      message = "Lorem ipsum..."
+      published = true
+      @course.enroll_student(User.create!, enrollment_state: "active").user
+      group_category = @course.group_categories.create! name: "foo"
+      group = group_category.groups.create! name: "bar", context: @course
+
+      query = <<~GQL
+        contextId: "#{@course.id}"
+        contextType: "#{context_type}"
+        title: "#{title}"
+        message: "#{message}"
+        published: #{published}
+        groupCategoryId: "#{group_category.id}"
+        assignment: {
+          courseId: "#{@course.id}",
+          name: "#{title}",
+          pointsPossible: 15,
+          postToSis: true,
+          groupCategoryId: "#{group_category.id}"
+          assignmentOverrides: {
+            groupId: "#{group.id}"
+          }
+        }
+      GQL
+
+      result = execute_with_input_with_assignment(query)
+      assignment = Assignment.last
+      discussion_topic = result.dig("data", "createDiscussionTopic", "discussionTopic")
+      override = assignment.assignment_overrides.first
+      aggregate_failures do
+        expect(result.dig("data", "discussionTopic", "errors")).to be_nil
+        expect(discussion_topic["assignment"]["name"]).to eq title
+        expect(discussion_topic["assignment"]["pointsPossible"]).to eq 15
+        expect(discussion_topic["assignment"]["assignmentOverrides"]["nodes"]).to match([{ "_id" => assignment.assignment_overrides.first.id.to_s, "title" => assignment.assignment_overrides.first.title }])
+        expect(discussion_topic["assignment"]["_id"]).to eq assignment.id.to_s
+        expect(discussion_topic["assignment"]["groupSet"]["_id"]).to eq group_category.id.to_s
+        expect(discussion_topic["_id"]).to eq assignment.discussion_topic.id.to_s
+        expect(DiscussionTopic.count).to eq 2
+        expect(DiscussionTopic.last.assignment.post_to_sis).to be true
+        expect(override.assignment_id).to eq assignment.id
+        expect(override.workflow_state).to eq "active"
       end
     end
 
@@ -908,26 +973,91 @@ describe Mutations::CreateDiscussionTopic do
         message: "#{message}"
         published: #{published}
         assignment: {
-          courseId: "1",
-            name: "#{title}",
-            pointsPossible: 15,
-            gradingType: percent,
-            peerReviews: {
-              anonymousReviews: true,
-              automaticReviews: true,
-              count: 2,
-              enabled: true,
-              intraReviews: true,
-              dueAt: "#{5.days.from_now.iso8601}",
-            }
+          courseId: "#{@course.id}",
+          name: "#{title}",
+          pointsPossible: 15,
+          gradingType: percent,
+          peerReviews: {
+            anonymousReviews: true,
+            automaticReviews: true,
+            count: 2,
+            enabled: true,
+            intraReviews: true,
+            dueAt: "#{5.days.from_now.iso8601}",
           }
+        }
       GQL
 
       student = @course.enroll_student(User.create!, enrollment_state: "active").user
       result = execute_with_input_with_assignment(query, student)
       discussion_topic = result.dig("data", "createDiscussionTopic", "discussionTopic")
       expect(discussion_topic).to be_nil
-      expect(result["data"]["createDiscussionTopic"]["errors"][0]["message"]).to eq "You do not have permissions to create assignments in the provided course"
+      expect(result["errors"][0]["message"]).to eq "invalid course: #{@course.id}"
+    end
+
+    it "error for: assignment context_id must match discussion topic context_id" do
+      context_type = "Course"
+      title = "Graded Discussion"
+      message = "Lorem ipsum..."
+      published = true
+
+      course2 = Course.create!(name: "Course 2", workflow_state: "active")
+
+      query = <<~GQL
+        contextId: "#{@course.id}"
+        contextType: "#{context_type}"
+        title: "#{title}"
+        message: "#{message}"
+        published: #{published}
+        assignment: {
+          courseId: "#{course2.id}",
+          name: "#{title}",
+          pointsPossible: 15,
+          gradingType: percent,
+          peerReviews: {
+            anonymousReviews: true,
+            automaticReviews: true,
+            count: 2,
+            enabled: true,
+            intraReviews: true,
+            dueAt: "#{5.days.from_now.iso8601}",
+          }
+        }
+      GQL
+
+      result = execute_with_input_with_assignment(query)
+      discussion_topic = result.dig("data", "createDiscussionTopic", "discussionTopic")
+      expect(discussion_topic).to be_nil
+      expect(result["data"]["createDiscussionTopic"]["errors"][0]["message"]).to eq "Assignment context_id must match discussion topic context_id"
+    end
+
+    it "error: unknown student ids" do
+      context_type = "Course"
+      title = "Graded Discussion"
+      message = "Lorem ipsum..."
+      published = true
+
+      query = <<~GQL
+        contextId: "#{@course.id}"
+        contextType: "#{context_type}"
+        title: "#{title}"
+        message: "#{message}"
+        published: #{published}
+        assignment: {
+          courseId: "#{@course.id}",
+          name: "#{title}",
+          pointsPossible: 15,
+          gradingType: percent,
+          assignmentOverrides: {
+            studentIds: ["#{@teacher.id - 1}"]
+          }
+        }
+      GQL
+
+      result = execute_with_input_with_assignment(query)
+      discussion_topic = result.dig("data", "createDiscussionTopic", "discussionTopic")
+      expect(discussion_topic).to be_nil
+      expect(result["data"]["createDiscussionTopic"]["errors"][0]["message"]).to eq "[[:base, \"unknown student ids: [\\\"#{@teacher.id - 1}\\\"]\"]]"
     end
   end
 end

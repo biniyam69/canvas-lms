@@ -29,10 +29,10 @@ import {useGradingSchemeDelete} from '../hooks/useGradingSchemeDelete'
 import {useGradingScheme} from '../hooks/useGradingScheme'
 import {
   GradingSchemeInput,
-  GradingSchemeEditableData,
-  GradingSchemeInputHandle,
+  type GradingSchemeEditableData,
+  type GradingSchemeInputHandle,
 } from './form/GradingSchemeInput'
-import {
+import type {
   GradingScheme,
   GradingSchemeSummary,
   GradingSchemeTemplate,
@@ -47,7 +47,7 @@ export interface GradingSchemeViewEditModalProps {
   contextType: 'Account' | 'Course'
   contextId: string
   gradingSchemeId: string
-  pointsBasedGradingSchemesEnabled: boolean
+  archivedGradingSchemesEnabled: boolean
   onUpdate?: (gradingSchemeSummary: GradingSchemeSummary) => any
   onCancel: () => any
   onDelete?: () => any
@@ -57,7 +57,7 @@ export const GradingSchemeViewEditModal: React.FC<GradingSchemeViewEditModalProp
   contextType,
   contextId,
   gradingSchemeId,
-  pointsBasedGradingSchemesEnabled,
+  archivedGradingSchemesEnabled,
   onUpdate,
   onCancel,
   onDelete,
@@ -216,11 +216,10 @@ export const GradingSchemeViewEditModal: React.FC<GradingSchemeViewEditModalProp
                     },
                   }}
                   onSave={modifiedGradingScheme => handleUpdateScheme(modifiedGradingScheme)}
-                  pointsBasedGradingSchemesFeatureEnabled={pointsBasedGradingSchemesEnabled}
                 />
               ) : (
                 <GradingSchemeView
-                  pointsBasedGradingSchemesEnabled={pointsBasedGradingSchemesEnabled}
+                  archivedGradingSchemesEnabled={archivedGradingSchemesEnabled}
                   disableEdit={!canManageScheme(gradingScheme)}
                   disableDelete={!canManageScheme(gradingScheme)}
                   onEditRequested={toggleEditing}

@@ -70,15 +70,18 @@ class Lti::IMS::Registration < ApplicationRecord
   def canvas_configuration
     config = lti_tool_configuration
 
+    overlay = registration_overlay
+
     {
       title: client_name,
-      scopes:,
+      scopes: scopes.reject { |s| overlay["disabledScopes"]&.include?(s) || false },
       public_jwk_url: jwks_uri,
       description: config["description"],
       custom_parameters: config["custom_parameters"],
       target_link_uri: config["target_link_uri"],
       oidc_initiation_url: initiate_login_uri,
       url: config["target_link_uri"],
+      privacy_level:,
       extensions: [{
         domain: config["domain"],
         platform: "canvas.instructure.com",
@@ -103,9 +106,7 @@ class Lti::IMS::Registration < ApplicationRecord
   end
 
   def privacy_level
-    # TODO: Allow tools to control this with an extension to the
-    # tool configuration
-    "public"
+    registration_overlay["privacy_level"] || lti_tool_configuration["https://#{CANVAS_EXTENSION_LABEL}/lti/privacy_level"] || "anonymous"
   end
 
   def update_external_tools?
@@ -120,18 +121,37 @@ class Lti::IMS::Registration < ApplicationRecord
         []
       else
         message["placements"].map do |placement|
+          display_type = message["https://#{CANVAS_EXTENSION_LABEL}/lti/display_type"]
+          window_target = nil
+          if display_type == "new_window"
+            display_type = "default"
+            window_target = "_blank"
+          end
+
+          placement_name = canvas_placement_name(placement)
+          placement_overlay = lookup_placement_overlay(placement) || {}
           {
-            placement: canvas_placement_name(placement),
-            enabled: true,
+            placement: placement_name,
+            enabled: !placement_disabled?(placement),
             message_type: message["type"],
             target_link_uri: message["target_link_uri"],
-            text: message["label"],
-            icon_url: message["icon_uri"],
-            custom_fields: message["custom_parameters"]
-          }.compact
+            text: placement_overlay["label"] || message["label"],
+            icon_url: placement_overlay["icon_url"] || message["icon_uri"],
+            custom_fields: message["custom_parameters"],
+            display_type:,
+            windowTarget: window_target,
+          }.merge(width_and_height_settings(message, placement_name)).compact
         end
       end
     end.flatten
+  end
+
+  def lookup_placement_overlay(placement_type)
+    registration_overlay["placements"]&.find { |p| p["type"] == placement_type }
+  end
+
+  def placement_disabled?(placement_type)
+    registration_overlay["disabledPlacements"]&.include?(placement_type) || false
   end
 
   def canvas_extensions
@@ -148,6 +168,10 @@ class Lti::IMS::Registration < ApplicationRecord
   end
 
   def new_external_tool(context, existing_tool: nil)
+    # disabled tools should stay disabled while getting updated
+    # deleted tools are never updated during a dev key update so can be safely ignored
+    tool_is_disabled = existing_tool&.workflow_state == ContextExternalTool::DISABLED_STATE
+
     tool = existing_tool || ContextExternalTool.new(context:)
     Importers::ContextExternalToolImporter.import_from_migration(
       importable_configuration,
@@ -157,9 +181,35 @@ class Lti::IMS::Registration < ApplicationRecord
       false
     )
     tool.developer_key = developer_key
-    tool.workflow_state = "active"
+    tool.workflow_state = (tool_is_disabled && ContextExternalTool::DISABLED_STATE) || privacy_level || DEFAULT_PRIVACY_LEVEL
     tool.use_1_3 = true
     tool
+  end
+
+  def as_json(options = {})
+    {
+      id: global_id.to_s,
+      developer_key_id: developer_key.global_id.to_s,
+      overlay: registration_overlay,
+      lti_tool_configuration:,
+      application_type:,
+      grant_types:,
+      response_types:,
+      redirect_uris:,
+      initiate_login_uri:,
+      client_name:,
+      jwks_uri:,
+      logo_uri:,
+      token_endpoint_auth_method:,
+      contacts:,
+      client_uri:,
+      policy_uri:,
+      tos_uri:,
+      scopes:,
+      created_at:,
+      updated_at:,
+      guid:,
+    }.as_json(options)
   end
 
   private
@@ -216,5 +266,23 @@ class Lti::IMS::Registration < ApplicationRecord
     # Otherwise, remove our URL prefix from the Canvas-specific placements
     canvas_extension = "https://#{CANVAS_EXTENSION_LABEL}/lti/"
     placement.start_with?(canvas_extension) ? placement.sub(canvas_extension, "") : placement
+  end
+
+  def width_and_height_settings(message, placement)
+    keys = ["selection_width", "selection_height"]
+    # placements that use launch_width and launch_height
+    # instead of selection_width and selection_height
+    uses_launch_width = ["assignment_edit", "post_grades"]
+    keys = ["launch_width", "launch_height"] if uses_launch_width.include?(placement)
+
+    values = [
+      message["https://#{CANVAS_EXTENSION_LABEL}/lti/launch_width"]&.to_i,
+      message["https://#{CANVAS_EXTENSION_LABEL}/lti/launch_height"]&.to_i,
+    ]
+
+    {
+      keys[0].to_sym => values[0],
+      keys[1].to_sym => values[1],
+    }
   end
 end

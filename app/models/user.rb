@@ -567,12 +567,20 @@ class User < ActiveRecord::Base
       shards = associated_shards(:strong) + associated_shards(:weak)
 
       Shard.with_each_shard(shards) do
-        (user_account_associations.for_root_accounts.shard(Shard.current).distinct.pluck(:account_id) +
-        # need to add back in deleted associations
-        pseudonyms.deleted.shard(Shard.current).except(:order).distinct.pluck(:account_id) +
-        enrollments.deleted.shard(Shard.current).distinct.pluck(:root_account_id) +
-        account_users.deleted.shard(Shard.current).distinct.pluck(:root_account_id))
-          .each do |account_id|
+        root_account_ids = user_account_associations.for_root_accounts.shard(Shard.current).distinct.pluck(:account_id)
+        root_account_ids.concat(if deleted? || creation_pending?
+                                  # if the user is deleted, they'll have no user_account_associations, so we need to add
+                                  # back in associations from both active and deleted objects
+                                  pseudonyms.shard(Shard.current).except(:order).distinct.pluck(:account_id) +
+                                  enrollments.shard(Shard.current).distinct.pluck(:root_account_id) +
+                                  account_users.shard(Shard.current).distinct.pluck(:root_account_id)
+                                else
+                                  # need to add back in deleted associations
+                                  pseudonyms.deleted.shard(Shard.current).except(:order).distinct.pluck(:account_id) +
+                                  enrollments.deleted.shard(Shard.current).distinct.pluck(:root_account_id) +
+                                  account_users.deleted.shard(Shard.current).distinct.pluck(:root_account_id)
+                                end)
+        root_account_ids.each do |account_id|
           refreshed_root_account_ids << Shard.relative_id_for(account_id, Shard.current, shard)
         end
       end
@@ -1421,7 +1429,7 @@ class User < ActiveRecord::Base
   def can_masquerade?(masquerader, account)
     return true if self == masquerader
     # student view should only ever have enrollments in a single course
-    return true if fake_student? && courses.any? { |c| c.grants_right?(masquerader, :use_student_view) }
+    return true if fake_student?
     return false unless
         account.grants_right?(masquerader, nil, :become_user) && SisPseudonym.for(self, account, type: :implicit, require_sis: false)
 
@@ -1728,7 +1736,7 @@ class User < ActiveRecord::Base
   end
 
   def apply_contrast(colors)
-    colors.each do |key, _v|
+    colors.each_key do |key|
       darkened_color = colors[key]
       begin
         until WCAGColorContrast.ratio(darkened_color.delete("#"), "ffffff") >= 4.5
@@ -3261,7 +3269,7 @@ class User < ActiveRecord::Base
   end
 
   def should_show_deeply_nested_alert?
-    ActiveModel::Type::Boolean.new.cast(get_preference(:isolated_view_deeply_nested_alert) || true)
+    ActiveModel::Type::Boolean.new.cast(get_preference(:split_screen_view_deeply_nested_alert) || true)
   end
 
   def stamp_logout_time!
@@ -3332,21 +3340,6 @@ class User < ActiveRecord::Base
         end
       end
     end
-  end
-
-  def submittable_attachments
-    user_attachments = attachments.active
-    group_attachments = Attachment.active.where(
-      context_type: "Group",
-      context_id: current_group_memberships.active.select(:group_id)
-    )
-
-    if block_given?
-      user_attachments = yield(user_attachments)
-      group_attachments = yield(group_attachments)
-    end
-
-    user_attachments.or(group_attachments)
   end
 
   def authenticate_one_time_password(code)

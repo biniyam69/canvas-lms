@@ -177,8 +177,8 @@ class WebConference < ActiveRecord::Base
   # regenerated)
   def external_url_for(key, user, url_id = nil)
     (external_urls[key.to_sym] &&
-      respond_to?("#{key}_external_url") &&
-      send("#{key}_external_url", user, url_id)) || []
+      respond_to?(:"#{key}_external_url") &&
+      send(:"#{key}_external_url", user, url_id)) || []
   end
 
   def self.external_urls
@@ -599,7 +599,7 @@ class WebConference < ActiveRecord::Base
 
       plugin.settings.merge(
         conference_type: plugin.id.classify,
-        class_name: (plugin.base || "#{plugin.id.classify}Conference"),
+        class_name: plugin.base || "#{plugin.id.classify}Conference",
         user_setting_fields: klass.user_setting_fields,
         name: plugin.name,
         plugin:

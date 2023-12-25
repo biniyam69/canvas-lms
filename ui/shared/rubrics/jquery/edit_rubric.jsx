@@ -28,7 +28,7 @@ import htmlEscape from 'html-escape'
 import numberHelper from '@canvas/i18n/numberHelper'
 import '@canvas/outcomes/find_outcome'
 import '@canvas/jquery/jquery.ajaxJSON'
-import '@canvas/forms/jquery/jquery.instructure_forms' /* formSubmit, fillFormData, getFormData */
+import '@canvas/jquery/jquery.instructure_forms' /* formSubmit, fillFormData, getFormData */
 import 'jqueryui/dialog'
 import '@canvas/jquery/jquery.instructure_misc_helpers' /* replaceTags */
 import '@canvas/jquery/jquery.instructure_misc_plugins' /* confirmDelete, showIf */
@@ -1291,7 +1291,8 @@ rubricEditing.init = function () {
       ) {
         skipPointsUpdate = true
       } else if (data['rubric_association[use_for_grading]'] === '1') {
-        const externalToolPoints = $('#tool_form #custom_canvas_assignment_points_possible').val()
+        const toolFormId = ENV['LTI_TOOL_FORM_ID'] ? `#tool_form_${ENV['LTI_TOOL_FORM_ID']}` : '#tool_form'
+        const externalToolPoints = $(`${toolFormId} #custom_canvas_assignment_points_possible`).val()
         let assignmentPoints
         if (externalToolPoints) {
           assignmentPoints = numberHelper.parse(externalToolPoints)

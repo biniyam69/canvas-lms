@@ -19,35 +19,18 @@
 import React, {useEffect, useState} from 'react'
 import {EnrollmentTreeGroup} from './EnrollmentTreeGroup'
 import {Spinner} from '@instructure/ui-spinner'
-import {Course, Enrollment, Role, Section} from './types'
+import type {Course, Enrollment, NodeStructure, Role, RoleChoice, Section} from './types'
 import {Flex} from '@instructure/ui-flex'
 import {useScope as useI18nScope} from '@canvas/i18n'
 
 const I18n = useI18nScope('temporary_enrollment')
 
-interface RoleChoice {
-  readonly id: string
-  readonly name: string
-}
-
-interface Props {
-  readonly enrollmentsByCourse: Course[] | any
-  readonly roles: Role[] | any
-  readonly selectedRole: RoleChoice
-  readonly createEnroll?: Function
-}
-
-export interface NodeStructure {
-  readonly children: NodeStructure[]
-  readonly enrollId?: string
-  readonly id: string
-  isCheck: boolean
-  isMismatch?: boolean
-  isMixed: boolean
-  isToggle?: boolean
-  readonly label: string
-  readonly parent?: NodeStructure
-  readonly workState?: string
+export interface Props {
+  enrollmentsByCourse: Course[]
+  roles: Role[]
+  selectedRole: RoleChoice
+  createEnroll?: Function
+  tempEnrollmentsPairing?: Enrollment[] | null
 }
 
 export function EnrollmentTree(props: Props) {
@@ -122,26 +105,35 @@ export function EnrollmentTree(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.selectedRole.name, loading])
 
-  // builds object tree
+  // build the object tree
   useEffect(() => {
+    let courseEnrollmentMap: Map<string | number, Enrollment> | undefined
+    if (props.tempEnrollmentsPairing) {
+      courseEnrollmentMap = new Map(
+        props.tempEnrollmentsPairing.map(enrollment => [enrollment.course_id, enrollment])
+      )
+    }
     // populate a data structure with the information needed for each row
     // ids are shared between role/course/section, so we need a prefix to distinguish type
     props.enrollmentsByCourse.forEach((course: Course) => {
       course.enrollments.forEach((enrollment: Enrollment) => {
-        const roleData = props.roles.find((role: Role) => {
-          return role.id === enrollment.role_id
-        })
-        if (roleData === undefined) {
+        const roleData = props.roles.find((role: Role) => role.id === enrollment.role_id)
+        if (!roleData) {
           return
         }
+        const courseCheckedByDefault =
+          course.workflow_state === 'available' &&
+          enrollment.enrollment_state === 'active' &&
+          roleData.base_role_name === 'TeacherEnrollment'
+        // unique id for each role
         const roleId = 'r' + enrollment.role_id
-        let roleCheck = false
-
-        if (roleData.base_role_name === 'TeacherEnrollment') {
-          roleCheck = true
+        let roleCheck: boolean
+        if (courseEnrollmentMap) {
+          roleCheck = course.id === courseEnrollmentMap.get(course.id)?.course_id
+        } else {
+          roleCheck = false
         }
-
-        let roleNode = {
+        let roleNode: NodeStructure = {
           id: roleId,
           label: roleData?.label,
           // eslint-disable-next-line no-array-constructor
@@ -151,61 +143,63 @@ export function EnrollmentTree(props: Props) {
           isCheck: roleCheck,
         }
         roleNode = findOrAppendNewNode(roleNode, tree)
-
         const courseId = course.id
         const cId = 'c' + courseId
         const childArray: NodeStructure[] = []
-        let courseNode = {
+        let courseNode: NodeStructure = {
           isMismatch: false,
           id: cId,
           label: course.name,
           parent: roleNode,
-          isCheck: roleNode.isCheck,
+          isCheck: props.tempEnrollmentsPairing ? roleCheck : courseCheckedByDefault,
           children: childArray,
           isToggle: false,
-          workState: course.workflow_state,
+          workflowState: course.workflow_state,
           isMixed: false,
         }
         courseNode = findOrAppendNewNode(courseNode, roleNode.children)
-
         course.sections.forEach((section: Section) => {
+          // skip if section role doesn't match role base
           if (section.enrollment_role !== roleData.base_role_name) {
-            return // skip if section role doesn't match role base
+            return
+          }
+          let sectionCheck: boolean
+          if (courseEnrollmentMap) {
+            const courseEnrollments = courseEnrollmentMap.get(course.id)
+            sectionCheck = section.id === courseEnrollments?.course_section_id
+          } else {
+            sectionCheck = courseNode.isCheck
           }
           const sectionNode = {
             isMismatch: false,
             id: `s${section.id}`,
             label: section.name,
             parent: courseNode,
-            isCheck: courseNode.isCheck,
+            isCheck: sectionCheck,
             children: [],
             enrollId: section.id,
             isMixed: false,
           }
           findOrAppendNewNode(sectionNode, courseNode.children)
         })
+        if (courseEnrollmentMap || courseCheckedByDefault) {
+          updateParentBasedOnChildren(courseNode)
+          updateParentBasedOnChildren(roleNode)
+        }
       })
     })
-
     tree.sort(sortByBase)
     setTree([...tree])
     setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [props.tempEnrollmentsPairing, props.enrollmentsByCourse])
 
-  const findOrAppendNewNode = (currentNode: any, parentNode: any) => {
-    let found = false
-    parentNode.find((node: NodeStructure) => {
-      if (node.label === currentNode.label) {
-        currentNode = node
-        found = true
-      }
-      return found
-    })
-    if (!found) {
+  const findOrAppendNewNode = (currentNode: NodeStructure, parentNode: NodeStructure[]) => {
+    const matchingNode = parentNode.find((node: NodeStructure) => node.id === currentNode.id)
+    if (!matchingNode) {
       parentNode.push(currentNode)
     }
-    return currentNode
+    return matchingNode || currentNode
   }
 
   const locateNode = (node: NodeStructure) => {
@@ -286,6 +280,24 @@ export function EnrollmentTree(props: Props) {
     }
   }
 
+  const updateParentBasedOnChildren = (parent: NodeStructure) => {
+    let allChecked = parent.children.length > 0
+    let anyChecked = false
+    let anyMixed = false
+    for (const child of parent.children) {
+      if (child.isCheck) {
+        anyChecked = true
+      } else {
+        allChecked = false
+      }
+      if (child.isMixed) {
+        anyMixed = true
+      }
+    }
+    parent.isCheck = allChecked && !anyMixed
+    parent.isMixed = (!allChecked && anyChecked) || anyMixed
+  }
+
   const handleUpdateTreeToggle = (node: NodeStructure, newState: boolean) => {
     const {currNode} = locateNode(node)
     currNode.isToggle = newState
@@ -296,22 +308,27 @@ export function EnrollmentTree(props: Props) {
     const roleElements = []
     for (const role in tree) {
       roleElements.push(
-        <EnrollmentTreeGroup
-          key={tree[role].id}
-          id={tree[role].id}
-          label={tree[role].label}
-          indent="0"
-          updateCheck={handleUpdateTreeCheck}
-          updateToggle={handleUpdateTreeToggle}
-          isCheck={tree[role].isCheck}
-          isToggle={tree[role].isToggle}
-          isMixed={tree[role].isMixed}
-        >
-          {[...tree[role].children]}
-        </EnrollmentTreeGroup>
+        <Flex.Item key={tree[role].id} shouldGrow={true} overflowY="visible">
+          <EnrollmentTreeGroup
+            id={tree[role].id}
+            label={tree[role].label}
+            indent="0"
+            updateCheck={handleUpdateTreeCheck}
+            updateToggle={handleUpdateTreeToggle}
+            isCheck={tree[role].isCheck}
+            isToggle={tree[role].isToggle}
+            isMixed={tree[role].isMixed}
+          >
+            {[...tree[role].children]}
+          </EnrollmentTreeGroup>
+        </Flex.Item>
       )
     }
-    return <>{roleElements}</>
+    return (
+      <Flex gap="medium" direction="column">
+        {roleElements}
+      </Flex>
+    )
   }
 
   if (loading) {

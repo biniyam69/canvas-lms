@@ -18,7 +18,8 @@
 
 import React, {useEffect, useRef, useState} from 'react'
 import ReactDOM from 'react-dom'
-import {TextInput, TextInputProps} from '@instructure/ui-text-input'
+import {TextInput} from '@instructure/ui-text-input'
+import type {TextInputProps} from '@instructure/ui-text-input'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import {Heading} from '@instructure/ui-heading'
@@ -59,7 +60,7 @@ const EditableContent = (props: Props) => {
   useEffect(() => {
     const handleSubmit = (evt?: JQuery.Event) => {
       evt?.stopPropagation()
-      const data = props.viewElement.getFormData()
+      const data = props.viewElement.getFormData<Record<string, unknown>>()
       const dataErrors = props.validationCallback(data)
       const titleErrors = dataErrors?.title || []
       if (titleErrors.length > 0) {

@@ -3048,7 +3048,7 @@ describe Enrollment do
       @enrollment2.associated_user_id = @enrollment.user_id
 
       expect(@enrollment).to be_valid
-      expect { @enrollment2.save! }.to raise_error("Validation failed: Associated user Cannot observe user with another user that is being observed by the current user")
+      expect { @enrollment2.save! }.to raise_error("Validation failed: Associated user Cannot observe observer observing self")
     end
 
     context "sharding" do
@@ -3079,7 +3079,7 @@ describe Enrollment do
       @temporary_enrollment_recipient = user_factory(active_all: true)
       temporary_enrollment_recipient2 = user_factory(active_all: true)
       @course1 = course_with_teacher(active_all: true, user: @source_user).course
-      temporary_enrollment_pairing = TemporaryEnrollmentPairing.create!(root_account: Account.default)
+      temporary_enrollment_pairing = TemporaryEnrollmentPairing.create!(root_account: Account.default, created_by: account_admin_user)
       @recipient_temp_enrollment = @course1.enroll_user(
         @temporary_enrollment_recipient,
         "TeacherEnrollment",

@@ -242,7 +242,15 @@ module Lti
       def destroy
         head :unauthorized and return if line_item.coupled
 
-        line_item.destroy!
+        if line_item.assignment_line_item?
+          # assignment owns the lifecycle of line items
+          # and resource links
+          line_item.assignment.destroy!
+        else
+          # this is an extra non-default line item and can be
+          # safely deleted on its own
+          line_item.destroy!
+        end
         head :no_content
       end
 
@@ -291,7 +299,7 @@ module Lti
 
         a = line_item.assignment
         attr_mapping.each do |param_name, assignment_attr_name|
-          a.send("#{assignment_attr_name}=", line_item_params[param_name]) if line_item_params.key?(param_name)
+          a.send(:"#{assignment_attr_name}=", line_item_params[param_name]) if line_item_params.key?(param_name)
         end
         a.save!
       end

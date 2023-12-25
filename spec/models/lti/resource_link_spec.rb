@@ -25,7 +25,8 @@ RSpec.describe Lti::ResourceLink do
   let(:resource_link) do
     Lti::ResourceLink.create!(context_external_tool: tool,
                               context: assignment,
-                              url: "http://www.example.com/launch")
+                              url: "http://www.example.com/launch",
+                              title: "Resource Title")
   end
 
   context "relationships" do
@@ -33,6 +34,35 @@ RSpec.describe Lti::ResourceLink do
     it { is_expected.to belong_to(:root_account) }
 
     it { is_expected.to have_many(:line_items) }
+
+    describe "when destroying" do
+      subject { resource_link.destroy }
+
+      let(:line_item) { line_item_model(resource_link:) }
+
+      it "destroys associated line items" do
+        expect(line_item).to be_active
+        subject
+        expect(line_item.reload).to be_deleted
+      end
+    end
+
+    describe "when undestroying" do
+      subject { resource_link.undestroy }
+
+      let(:line_item) { line_item_model(resource_link:) }
+
+      before do
+        line_item
+        resource_link.destroy
+      end
+
+      it "undestroys associated line items" do
+        expect(line_item.reload).to be_deleted
+        subject
+        expect(line_item.reload).to be_active
+      end
+    end
   end
 
   context "when validating" do
@@ -126,6 +156,24 @@ RSpec.describe Lti::ResourceLink do
         expect(course.lti_resource_links.count).to eq 2
         expect(course.lti_resource_links.first).to eq resource_link_1
         expect(course.lti_resource_links.last).to eq resource_link_2
+      end
+    end
+
+    context "with `title`" do
+      let(:title) { "Resource Title" }
+
+      it "create resource link" do
+        resource_link = described_class.create_with(course, tool, nil, nil, title)
+        expect(course.lti_resource_links.first).to eq resource_link
+        expect(course.lti_resource_links.first.title).to eq title
+      end
+    end
+
+    context "without `title`" do
+      it "create resource link with nil title" do
+        resource_link = described_class.create_with(course, tool)
+        expect(course.lti_resource_links.first).to eq resource_link
+        expect(course.lti_resource_links.first.title).to be_nil
       end
     end
   end

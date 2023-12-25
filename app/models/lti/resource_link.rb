@@ -47,13 +47,21 @@ class Lti::ResourceLink < ApplicationRecord
   before_validation :generate_lookup_uuid, on: :create
   before_save :set_root_account
 
-  def self.create_with(context, tool, custom_params = nil, url = nil)
+  alias_method :original_undestroy, :undestroy
+  private :original_undestroy
+  def undestroy
+    line_items.find_each(&:undestroy)
+    original_undestroy
+  end
+
+  def self.create_with(context, tool, custom_params = nil, url = nil, title = nil)
     return if context.nil? || tool.nil?
 
     context.lti_resource_links.create!(
       custom: Lti::DeepLinkingUtil.validate_custom_params(custom_params),
       context_external_tool: tool,
-      url:
+      url:,
+      title:
     )
   end
 

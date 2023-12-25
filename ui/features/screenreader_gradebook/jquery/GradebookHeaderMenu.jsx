@@ -34,7 +34,7 @@ import ReactDOM from 'react-dom'
 import MessageStudentsWithObserversDialog from '@canvas/message-students-dialog/react/MessageStudentsWhoDialog'
 import {ApolloProvider} from 'react-apollo'
 import {createClient} from '@canvas/apollo'
-import '@canvas/forms/jquery/jquery.instructure_forms'
+import '@canvas/jquery/jquery.instructure_forms'
 import 'jqueryui/dialog'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import '@canvas/jquery/jquery.instructure_misc_plugins'
@@ -44,7 +44,7 @@ import replaceTags from '@canvas/util/replaceTags'
 const I18n = useI18nScope('gradebookHeaderMenu')
 
 const isAdmin = function () {
-  return ENV.current_user_roles.includes('admin')
+  return ENV.current_user_is_admin
 }
 
 export default class GradebookHeaderMenu {

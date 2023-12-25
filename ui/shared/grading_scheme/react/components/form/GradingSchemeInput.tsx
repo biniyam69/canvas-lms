@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {Fragment, ChangeEvent, useState, useImperativeHandle} from 'react'
+import React, {Fragment, type ChangeEvent, useState, useImperativeHandle} from 'react'
 import shortid from '@canvas/shortid'
 
 import {useScope as useI18nScope} from '@canvas/i18n'
@@ -27,10 +27,11 @@ import {RadioInputGroup, RadioInput} from '@instructure/ui-radio-input'
 import numberHelper from '@canvas/i18n/numberHelper'
 
 import {GradingSchemeDataRowInput} from './GradingSchemeDataRowInput'
-import {GradingSchemeDataRow} from '@instructure/grading-utils'
+import type {GradingSchemeDataRow} from '@instructure/grading-utils'
 import {GradingSchemeValidationAlert} from './GradingSchemeValidationAlert'
 import {gradingSchemeIsValid} from './validations/gradingSchemeValidations'
 import {roundToTwoDecimalPlaces, roundToFourDecimalPlaces} from '../../helpers/roundDecimalPlaces'
+import {Flex} from '@instructure/ui-flex'
 
 const I18n = useI18nScope('GradingSchemeManagement')
 
@@ -40,8 +41,8 @@ export interface ComponentProps {
     points: GradingSchemeEditableData
   }
   onSave: (updatedGradingSchemeData: GradingSchemeEditableData) => any
-  pointsBasedGradingSchemesFeatureEnabled: boolean
   schemeInputType: 'percentage' | 'points'
+  archivedGradingSchemesEnabled?: boolean
 }
 export interface GradingSchemeEditableData {
   title: string
@@ -68,7 +69,7 @@ export type GradingSchemeInputHandle = {
 
 export const GradingSchemeInput = React.forwardRef<GradingSchemeInputHandle, ComponentProps>(
   (
-    {initialFormDataByInputType, schemeInputType, onSave, pointsBasedGradingSchemesFeatureEnabled},
+    {initialFormDataByInputType, schemeInputType, onSave, archivedGradingSchemesEnabled = false},
     ref
   ) => {
     interface GradingSchemeInputState {
@@ -334,19 +335,19 @@ export const GradingSchemeInput = React.forwardRef<GradingSchemeInputHandle, Com
         )}
 
         <View as="div" withVisualDebug={false}>
-          <View as="div" padding="none none small none" withVisualDebug={false}>
-            <View as="div" padding="small none small none">
-              <TextInput
-                isRequired={true}
-                width="23rem"
-                renderLabel={I18n.t('Grading Scheme Name')}
-                onChange={changeTitle}
-                defaultValue={formState.title}
-                placeholder={I18n.t('New Grading Scheme')}
-              />
-            </View>
-            {pointsBasedGradingSchemesFeatureEnabled ? (
-              <View as="div" padding="none none small none" withVisualDebug={false}>
+          <View as="div" padding="none small medium none" withVisualDebug={false}>
+            <Flex justifyItems="space-between" wrap="wrap">
+              <Flex.Item padding="small none small none">
+                <TextInput
+                  isRequired={true}
+                  width="23rem"
+                  renderLabel={I18n.t('Grading Scheme Name')}
+                  onChange={changeTitle}
+                  defaultValue={formState.title}
+                  placeholder={I18n.t('New Grading Scheme')}
+                />
+              </Flex.Item>
+              <Flex.Item padding="none none small x-small" margin="small none none none">
                 <RadioInputGroup
                   layout="columns"
                   name={`pointsBased_${shortid()}`}
@@ -357,10 +358,8 @@ export const GradingSchemeInput = React.forwardRef<GradingSchemeInputHandle, Com
                   <RadioInput value="percentage" label={I18n.t('Percentage')} />
                   <RadioInput value="points" label={I18n.t('Points')} />
                 </RadioInputGroup>
-              </View>
-            ) : (
-              <></>
-            )}
+              </Flex.Item>
+            </Flex>
           </View>
           <table style={{width: '100%'}}>
             <caption>
@@ -372,14 +371,13 @@ export const GradingSchemeInput = React.forwardRef<GradingSchemeInputHandle, Com
             </caption>
             <thead>
               <tr>
-                <th style={{width: '5%'}}>
-                  <ScreenReaderContent>{I18n.t('Add row action')}</ScreenReaderContent>
+                <th style={{width: '30%', textAlign: 'start', padding: '0.5rem'}}>
+                  {I18n.t('Letter Grade')}
                 </th>
-                <th style={{width: '30%', textAlign: 'start'}}>{I18n.t('Letter Grade')}</th>
-                <th colSpan={2} style={{width: '50%', textAlign: 'start'}}>
+                <th colSpan={2} style={{width: '40%', textAlign: 'start', padding: '0.5rem'}}>
                   {I18n.t('Range')}
                 </th>
-                <th style={{width: '15%'}}>
+                <th style={{width: '30%'}}>
                   <ScreenReaderContent>{I18n.t('Actions')}</ScreenReaderContent>
                 </th>
               </tr>
@@ -402,6 +400,7 @@ export const GradingSchemeInput = React.forwardRef<GradingSchemeInputHandle, Com
                     displayScalingFactor={formState.scalingFactor}
                     onHighRangeChange={it => handleRowHighRangeChanged(idx, it)}
                     onHighRangeBlur={highRangeValue => handleBlurRowHighRange(idx, highRangeValue)}
+                    archivedGradingSchemesEnabled={archivedGradingSchemesEnabled}
                   />
                 </Fragment>
               ))}

@@ -30,7 +30,7 @@ import AssignmentOverrideCollection from '../collections/AssignmentOverrideColle
 import DateGroupCollection from '@canvas/date-group/backbone/collections/DateGroupCollection'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import GradingPeriodsHelper from '@canvas/grading/GradingPeriodsHelper'
-import tz from '@canvas/timezone'
+import * as tz from '@canvas/datetime'
 import numberHelper from '@canvas/i18n/numberHelper'
 import PandaPubPoller from '@canvas/panda-pub-poller'
 import {matchingToolUrls} from './LtiAssignmentHelpers'
@@ -47,7 +47,7 @@ const canManage = function () {
 }
 
 const isAdmin = function () {
-  return _.includes(ENV.current_user_roles, 'admin')
+  return ENV.current_user_is_admin
 }
 
 // must check canManage because current_user_roles will include roles from other enrolled courses

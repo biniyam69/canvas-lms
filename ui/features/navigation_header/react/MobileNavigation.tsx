@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState, useEffect, useRef} from 'react'
+import React, {useEffect, useState} from 'react'
 import $ from 'jquery'
 import {Tray} from '@instructure/ui-tray'
 import {View} from '@instructure/ui-view'
@@ -38,9 +38,9 @@ const mobileHeaderInboxUnreadBadge = document.getElementById('mobileHeaderInboxU
 const MobileContextMenu = React.lazy(() => import('./MobileContextMenu'))
 const MobileGlobalMenu = React.lazy(() => import('./MobileGlobalMenu'))
 
-const MobileNavigation = () => {
-  const [globalNavIsOpen, setGlobalNavIsOpen] = useState(false)
-  const contextNavIsOpen = useRef(false)
+const MobileNavigation: React.FC<{navIsOpen?: boolean}> = ({navIsOpen = false}) => {
+  const [globalNavIsOpen, setGlobalNavIsOpen] = useState(navIsOpen)
+  const [contextNavIsOpen, setContextNavIsOpen] = useState(false)
 
   const countsEnabled = Boolean(
     window.ENV.current_user_id && !window.ENV.current_user?.fake_student
@@ -69,25 +69,25 @@ const MobileNavigation = () => {
       window.openBPSidebar()
     })
 
-    const arrowIcon = document.getElementById('mobileHeaderArrowIcon')
-    const mobileContextNavContainer = document.getElementById('mobileContextNavContainer')
     $('.mobile-header-title.expandable, .mobile-header-arrow').on('touchstart click', event => {
       event.preventDefault()
-      contextNavIsOpen.current = !contextNavIsOpen.current
-
-      // gotta do some manual dom manip for the non-react arrow/close icon
-      if (arrowIcon) {
-        arrowIcon.className = contextNavIsOpen.current ? 'icon-x' : 'icon-arrow-open-down'
-      }
-
-      if (mobileContextNavContainer) {
-        mobileContextNavContainer.setAttribute(
-          'aria-expanded',
-          contextNavIsOpen.current ? 'true' : 'false'
-        )
-      }
+      setContextNavIsOpen(prev => !prev)
     })
   }, [])
+
+  useEffect(() => {
+    const arrowIcon = document.getElementById('mobileHeaderArrowIcon')
+    const mobileContextNavContainer = document.getElementById('mobileContextNavContainer')
+
+    // gotta do some manual dom manip for the non-react arrow/close icon
+    if (arrowIcon) {
+      arrowIcon.className = contextNavIsOpen ? 'icon-x' : 'icon-arrow-open-down'
+    }
+
+    if (mobileContextNavContainer) {
+      mobileContextNavContainer.setAttribute('aria-expanded', contextNavIsOpen.toString())
+    }
+  }, [contextNavIsOpen])
 
   const spinner = (
     <View display="block" textAlign="center">
@@ -112,7 +112,7 @@ const MobileNavigation = () => {
           )}
         </Tray>
       )}
-      {contextNavIsOpen.current && (
+      {contextNavIsOpen && (
         <React.Suspense fallback={spinner}>
           <MobileContextMenu spinner={spinner} />
         </React.Suspense>

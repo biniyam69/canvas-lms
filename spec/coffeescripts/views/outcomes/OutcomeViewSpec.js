@@ -19,9 +19,9 @@
 import $ from 'jquery'
 import fakeENV from 'helpers/fakeENV'
 
-import OutcomeContentBase from '@canvas/outcome-content-view/backbone/views/OutcomeContentBase'
+import OutcomeContentBase from '@canvas/outcomes/content-view/backbone/views/OutcomeContentBase'
 import Outcome from '@canvas/outcomes/backbone/models/Outcome'
-import OutcomeView from '@canvas/outcome-content-view/backbone/views/OutcomeView'
+import OutcomeView from '@canvas/outcomes/content-view/backbone/views/OutcomeView'
 import I18nStubber from 'helpers/I18nStubber'
 
 // stub function that creates the RCE to avoid
@@ -215,6 +215,7 @@ function commonTests() {
   test('move and delete buttons are not available for an account outcome if a user is a teacher', () => {
     ENV.ROOT_OUTCOME_GROUP = {context_type: 'Course'}
     ENV.current_user_roles = ['teacher']
+    ENV.current_user_is_admin = false
     const view = createView({
       model: newOutcome(
         {

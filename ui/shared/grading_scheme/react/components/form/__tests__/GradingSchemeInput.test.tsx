@@ -30,7 +30,7 @@ import {
   FORM_INPUT_DUPLICATE_NAMED_RANGES,
   FORM_INPUT_MISSING_RANGE_NAME,
 } from './fixtures'
-import {GradingSchemeInput, GradingSchemeInputHandle} from '../GradingSchemeInput'
+import {GradingSchemeInput, type GradingSchemeInputHandle} from '../GradingSchemeInput'
 
 const onSave = jest.fn()
 
@@ -48,7 +48,7 @@ describe('GradingSchemeInput', () => {
         }}
         schemeInputType="percentage"
         onSave={onSave}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
 
@@ -93,7 +93,7 @@ describe('GradingSchemeInput', () => {
         }}
         schemeInputType="points"
         onSave={onSave}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
 
@@ -125,41 +125,6 @@ describe('GradingSchemeInput', () => {
     expect(minRangeCells[6].textContent).toBe('0')
   })
 
-  // TODO: remove this test after points grading scheme feature flag is turned on globally
-  it('renders with points grading scheme feature flag off', () => {
-    render(
-      <GradingSchemeInput
-        initialFormDataByInputType={{
-          percentage: VALID_FORM_INPUT,
-          points: VALID_FORM_INPUT_POINTS_BASED,
-        }}
-        schemeInputType="percentage"
-        onSave={onSave}
-        pointsBasedGradingSchemesFeatureEnabled={false}
-      />
-    )
-
-    const titleInput = screen.getByLabelText('Grading Scheme Name')
-    expect(titleInput).toBeInTheDocument()
-
-    const letterGradeInputs = screen.getAllByLabelText<HTMLInputElement>('Letter Grade')
-    expect(letterGradeInputs.length).toBe(5)
-    expect(letterGradeInputs[0].value).toBe('A')
-    expect(letterGradeInputs[1].value).toBe('B')
-    expect(letterGradeInputs[2].value).toBe('C')
-    expect(letterGradeInputs[3].value).toBe('D')
-    expect(letterGradeInputs[4].value).toBe('F')
-
-    const minRangeCells = screen.getAllByLabelText('Lower limit of range')
-    expect((minRangeCells[0] as HTMLInputElement).value).toBe('90')
-    expect((minRangeCells[1] as HTMLInputElement).value).toBe('80')
-    expect((minRangeCells[2] as HTMLInputElement).value).toBe('70')
-    expect((minRangeCells[3] as HTMLInputElement).value).toBe('60')
-    // the last min range is a hard coded 0.0
-    // note that query results 4-7 are the wrapping spans with the 'to ' in them
-    expect(minRangeCells[8].textContent).toBe('0%')
-  })
-
   it('save callback is invoked on parent imperative save button press when form data is valid', () => {
     const gradingSchemeInputRef = React.createRef<GradingSchemeInputHandle>()
     render(
@@ -171,7 +136,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
     act(() => gradingSchemeInputRef.current?.savePressed())
@@ -189,26 +154,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="points"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
-      />
-    )
-    act(() => gradingSchemeInputRef.current?.savePressed())
-    expect(onSave).toHaveBeenCalled()
-  })
-
-  // TODO: remove this test after points grading scheme feature flag is turned on globally
-  it('save callback is invoked on parent imperative save button press when form data is valid and points based scheme feature flag is off', () => {
-    const gradingSchemeInputRef = React.createRef<GradingSchemeInputHandle>()
-    render(
-      <GradingSchemeInput
-        initialFormDataByInputType={{
-          percentage: VALID_FORM_INPUT,
-          points: VALID_FORM_INPUT_POINTS_BASED,
-        }}
-        schemeInputType="percentage"
-        onSave={onSave}
-        ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     act(() => gradingSchemeInputRef.current?.savePressed())
@@ -226,7 +172,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const deleteRowButtons = screen.getAllByText('Remove letter grade row')
@@ -254,7 +200,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const deleteRowButtons = screen.getAllByText('Remove letter grade row')
@@ -283,7 +229,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const deleteRowButtons = screen.getAllByText('Remove letter grade row')
@@ -315,7 +261,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const addRowButtons = screen.getAllByText(
@@ -352,7 +298,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="points"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const addRowButtons = screen.getAllByText(
@@ -377,43 +323,6 @@ describe('GradingSchemeInput', () => {
     })
   })
 
-  // TODO: remove this test after points grading scheme feature flag is turned on globally
-  it('data is accurate when a new row is added when points based scheme feature flag is off', () => {
-    const gradingSchemeInputRef = React.createRef<GradingSchemeInputHandle>()
-    render(
-      <GradingSchemeInput
-        initialFormDataByInputType={{
-          percentage: SHORT_FORM_INPUT,
-          points: VALID_FORM_INPUT_POINTS_BASED,
-        }}
-        schemeInputType="percentage"
-        onSave={onSave}
-        ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
-      />
-    )
-    const addRowButtons = screen.getAllByText(
-      'Add new row for a letter grade to grading scheme after this row'
-    )
-    expect(addRowButtons.length).toBe(2)
-    act(() => addRowButtons[0].click()) // add a row after the first row
-    const letterGradeInputs = screen.getAllByLabelText<HTMLInputElement>('Letter Grade')
-    expect(letterGradeInputs.length).toBe(3) // we've added a row between the initial two
-    userEvent.type(letterGradeInputs[1], 'X') // give the new row a letter grade
-
-    act(() => gradingSchemeInputRef.current?.savePressed())
-    expect(onSave).toHaveBeenCalledWith({
-      title: 'A Grading Scheme',
-      data: [
-        {name: 'P', value: 0.5},
-        {name: 'X', value: 0.25},
-        {name: 'F', value: 0.0},
-      ],
-      pointsBased: false,
-      scalingFactor: 1.0,
-    })
-  })
-
   it('validation error displayed for points scheme when a max range is not a number', () => {
     const gradingSchemeInputRef = React.createRef<GradingSchemeInputHandle>()
     render(
@@ -425,7 +334,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="points"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const rangeInputs = screen.getAllByLabelText('Upper limit of range')
@@ -454,7 +363,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="points"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const rangeInputs = screen.getAllByLabelText('Upper limit of range')
@@ -482,7 +391,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="points"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
 
@@ -508,7 +417,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="points"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const rangeInputs = screen.getAllByLabelText<HTMLInputElement>('Lower limit of range')
@@ -533,7 +442,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="points"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const rangeInputs = screen.getAllByLabelText<HTMLInputElement>('Lower limit of range')
@@ -558,7 +467,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const rangeInputs = screen.getAllByLabelText<HTMLInputElement>('Lower limit of range')
@@ -595,7 +504,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const rangeInputs = screen.getAllByLabelText<HTMLInputElement>('Lower limit of range')
@@ -620,7 +529,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     const rangeInputs = screen.getAllByLabelText<HTMLInputElement>('Lower limit of range')
@@ -645,7 +554,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     act(() => gradingSchemeInputRef.current?.savePressed())
@@ -667,7 +576,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     act(() => gradingSchemeInputRef.current?.savePressed())
@@ -689,7 +598,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     act(() => gradingSchemeInputRef.current?.savePressed())
@@ -711,7 +620,7 @@ describe('GradingSchemeInput', () => {
         schemeInputType="percentage"
         onSave={onSave}
         ref={gradingSchemeInputRef}
-        pointsBasedGradingSchemesFeatureEnabled={false}
+        archivedGradingSchemesEnabled={false}
       />
     )
     act(() => gradingSchemeInputRef.current?.savePressed())
@@ -731,7 +640,7 @@ describe('GradingSchemeInput', () => {
         }}
         schemeInputType="percentage"
         onSave={onSave}
-        pointsBasedGradingSchemesFeatureEnabled={true}
+        archivedGradingSchemesEnabled={false}
       />
     )
 
@@ -779,8 +688,8 @@ describe('GradingSchemeInput', () => {
           points: VALID_FORM_INPUT_POINTS_BASED,
         }}
         onSave={onSave}
-        pointsBasedGradingSchemesFeatureEnabled={true}
         schemeInputType="percentage"
+        archivedGradingSchemesEnabled={false}
       />
     )
 
@@ -834,26 +743,5 @@ describe('GradingSchemeInput', () => {
       pointsBased: true,
       scalingFactor: 4.0,
     })
-  })
-
-  // TODO: remove this test after points grading scheme feature flag is turned on globally
-  it('no percentage/points radio group when points based scheme feature flag is off', () => {
-    render(
-      <GradingSchemeInput
-        initialFormDataByInputType={{
-          percentage: VALID_FORM_INPUT,
-          points: VALID_FORM_INPUT_POINTS_BASED,
-        }}
-        schemeInputType="percentage"
-        onSave={onSave}
-        pointsBasedGradingSchemesFeatureEnabled={false}
-      />
-    )
-
-    const percentageRadioInput = screen.queryByLabelText<HTMLInputElement>('Percentage')
-    expect(percentageRadioInput).not.toBeInTheDocument()
-
-    const pointsRadioInput = screen.queryByLabelText<HTMLInputElement>('Points')
-    expect(pointsRadioInput).not.toBeInTheDocument()
   })
 })

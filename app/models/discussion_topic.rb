@@ -82,7 +82,7 @@ class DiscussionTopic < ActiveRecord::Base
   belongs_to :editor, class_name: "User"
   belongs_to :root_topic, class_name: "DiscussionTopic"
   belongs_to :group_category
-  has_many :checkpoint_assignments, through: :assignment
+  has_many :sub_assignments, through: :assignment
   has_many :child_topics, class_name: "DiscussionTopic", foreign_key: :root_topic_id, dependent: :destroy
   has_many :discussion_topic_participants, dependent: :destroy
   has_many :discussion_entry_participants, through: :discussion_entries
@@ -95,6 +95,8 @@ class DiscussionTopic < ActiveRecord::Base
   has_many :course_sections, through: :discussion_topic_section_visibilities, dependent: :destroy
   belongs_to :user
   has_one :master_content_tag, class_name: "MasterCourses::MasterContentTag", inverse_of: :discussion_topic
+  has_many :assignment_overrides, dependent: :destroy, inverse_of: :discussion_topic
+  has_many :assignment_override_students, dependent: :destroy
 
   validates_associated :discussion_topic_section_visibilities
   validates :context_id, :context_type, presence: true
@@ -104,7 +106,7 @@ class DiscussionTopic < ActiveRecord::Base
   # For our users, when setting checkpoints, the value must be between 1 and 10.
   # But we also allow 0 when there are no checkpoints.
   validates :reply_to_entry_required_count, presence: true, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 10 }
-  validates :reply_to_entry_required_count, numericality: { greater_than: 0 }, if: :checkpoints?
+  validates :reply_to_entry_required_count, numericality: { greater_than: 0 }, if: -> { reply_to_entry_checkpoint.present? }
   validate :validate_draft_state_change, if: :workflow_state_changed?
   validate :section_specific_topics_must_have_sections
   validate :only_course_topics_can_be_section_specific
@@ -348,55 +350,6 @@ class DiscussionTopic < ActiveRecord::Base
         topic
       end
     end
-  end
-
-  def build_assignment(assignment_input = {})
-    return if deleted?
-
-    working_assignment = course.assignments.build
-
-    working_assignment.context = context
-    working_assignment.title = title
-    working_assignment.description = message
-    working_assignment.submission_types = "discussion_topic"
-    working_assignment.workflow_state = (workflow_state == "active") ? "published" : "unpublished"
-    # setting this ensures the assignment won't create a new discussion_topic when it gets created
-    working_assignment.saved_by = :discussion_topic
-
-    basic_assignment_attributes = %i[
-      assignment_group_id
-      assignment_overrides
-      due_at
-      grading_type
-      grading_standard_id
-      lock_at
-      name
-      points_possible
-      unlock_at
-      post_to_sis
-    ]
-
-    basic_assignment_attributes.each do |field|
-      working_assignment.send("#{field}=", assignment_input[field]) if assignment_input[field]
-    end
-
-    working_peer_reviews = assignment_input[:peer_reviews].to_h if assignment_input[:peer_reviews]
-    if working_peer_reviews
-      peer_review_mappings = {
-        enabled: :peer_reviews,
-        count: :peer_review_count,
-        due_at: :peer_reviews_due_at,
-        intra_reviews: :intra_group_peer_reviews,
-        anonymous_reviews: :anonymous_peer_reviews,
-        automatic_reviews: :automatic_peer_reviews
-      }
-
-      peer_review_mappings.each do |field_from_peer_reviews, attribute_on_assignment|
-        working_assignment.send("#{attribute_on_assignment}=", working_peer_reviews[field_from_peer_reviews]) if working_peer_reviews[field_from_peer_reviews]
-      end
-    end
-
-    working_assignment
   end
 
   def update_assignment
@@ -896,8 +849,15 @@ class DiscussionTopic < ActiveRecord::Base
   }
 
   alias_attribute :available_from, :delayed_post_at
-  alias_attribute :unlock_at, :delayed_post_at
   alias_attribute :available_until, :lock_at
+
+  def unlock_at
+    Account.site_admin.feature_enabled?(:differentiated_modules) ? super : delayed_post_at
+  end
+
+  def unlock_at=(value)
+    Account.site_admin.feature_enabled?(:differentiated_modules) ? super : self.delayed_post_at = value
+  end
 
   def should_lock_yet
     # not assignment or vdd aware! only use this to check the topic's own field!
@@ -1011,6 +971,13 @@ class DiscussionTopic < ActiveRecord::Base
                          !discussion_entries.active.where(user_id: student_ids).exists?
                        end
                      end
+  end
+
+  def self.create_graded_topic!(course:, title:, user: nil)
+    raise ActiveRecord::RecordInvalid if course.nil?
+
+    assignment = course.assignments.create!(submission_types: "discussion_topic", updating_user: user, title:)
+    assignment.discussion_topic
   end
 
   def self.preload_can_unpublish(context, topics, assmnt_ids_with_subs = nil)
@@ -1723,7 +1690,7 @@ class DiscussionTopic < ActiveRecord::Base
     media_object_ids = []
     messages_hash = {}
     messages.each do |message|
-      txt = (message.message || "")
+      txt = message.message || ""
       attachment_matches = txt.scan(%r{/#{context.class.to_s.pluralize.underscore}/#{context.id}/files/(\d+)/download})
       attachment_ids += (attachment_matches || []).pluck(0)
       media_object_matches = txt.scan(/media_comment_([\w-]+)/) + txt.scan(/data-media-id="([\w-]+)"/)
@@ -1852,25 +1819,35 @@ class DiscussionTopic < ActiveRecord::Base
   end
 
   def checkpoints?
-    checkpoint_assignments.any?
+    sub_assignments.any?
   end
 
   def reply_to_topic_checkpoint
-    checkpoint_assignments.find_by(checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC)
+    sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
   end
 
   def reply_to_entry_checkpoint
-    checkpoint_assignments.find_by(checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY)
+    sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
   end
 
-  def create_checkpoints(reply_to_topic_points:, reply_to_entry_points:, reply_to_entry_required_count: 0)
+  def create_checkpoints(reply_to_topic_points:, reply_to_entry_points:, reply_to_entry_required_count: 1)
     return false if checkpoints?
     return false unless context.is_a?(Course)
+    return false unless assignment.present?
 
-    parent = context.assignments.create!(checkpointed: true, checkpoint_label: CheckpointLabels::PARENT)
-    parent.checkpoint_assignments.create!(context:, checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC, points_possible: reply_to_topic_points)
-    parent.checkpoint_assignments.create!(context:, checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY, points_possible: reply_to_entry_points)
-    self.assignment = parent
+    assignment.update!(has_sub_assignments: true)
+    assignment.sub_assignments.create!(
+      context:,
+      sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC,
+      submission_types: "discussion_topic",
+      points_possible: reply_to_topic_points
+    )
+    assignment.sub_assignments.create!(
+      context:,
+      sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY,
+      submission_types: "discussion_topic",
+      points_possible: reply_to_entry_points
+    )
     self.reply_to_entry_required_count = reply_to_entry_required_count
 
     save

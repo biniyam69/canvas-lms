@@ -143,6 +143,56 @@ describe RubricAssessment do
     it "returns true if the rubric association exists and is active" do
       expect(@assessment).to be_active_rubric_association
     end
+
+    context "triggering a rubric_assessed live event" do
+      it "does not trigger if there is not rubric association" do
+        expect(Canvas::LiveEvents).not_to receive(:rubric_assessed)
+        @assessment.update!(rubric_association: nil)
+      end
+
+      it "does not trigger if the rubric association is soft-deleted" do
+        expect(Canvas::LiveEvents).not_to receive(:rubric_assessed)
+        @association.destroy
+      end
+
+      context "if the rubric association exists and is active" do
+        before do
+          @assignment = assignment_model
+          @association = @rubric.associate_with(@assignment, @course, purpose: "grading", use_for_grading: true)
+          @course.enroll_student(@student, enrollment_state: :active)
+          @artifact = @assignment.find_or_create_submission(@student)
+        end
+
+        def assess_assignment(criterion_points)
+          @association.assess({
+                                user: @student,
+                                assessor: @teacher,
+                                artifact: @artifact,
+                                assessment: {
+                                  assessment_type: "grading",
+                                  criterion_crit1: {
+                                    points: criterion_points,
+                                    comments: "comments",
+                                  }
+                                }
+                              })
+        end
+
+        it "does trigger an event when saving the initial assessment" do
+          expect(Canvas::LiveEvents).to receive(:rubric_assessed)
+          @assessment = assess_assignment("3")
+        end
+
+        it "does trigger an event when reassessing an assessment" do
+          expect(Canvas::LiveEvents).to receive(:rubric_assessed).twice
+          first_assessment = assess_assignment("3")
+          expect(first_assessment.versions.count).to eq 1
+
+          second_assessment = assess_assignment("5")
+          expect(second_assessment.versions.count).to eq 2
+        end
+      end
+    end
   end
 
   it { is_expected.to have_many(:learning_outcome_results).dependent(:destroy) }
@@ -360,6 +410,48 @@ describe RubricAssessment do
       end
     end
 
+    context "aligned_outcome_ids" do
+      it "returns ids if rubric is aligned with outcomes" do
+        assignment_model
+        outcome_with_rubric
+        @association = @rubric.associate_with(@assignment, @course, purpose: "grading", use_for_grading: true)
+        @course.enroll_student(@student, enrollment_state: :active)
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
+        assessment = @association.assess({
+                                           user: @student,
+                                           assessor: @teacher,
+                                           artifact: @assignment.find_or_create_submission(@student),
+                                           assessment: {
+                                             :assessment_type => "grading",
+                                             criterion_id => {
+                                               points: "3"
+                                             }
+                                           }
+                                         })
+        expect(assessment.aligned_outcome_ids).to eq [@rubric.data[0][:learning_outcome_id]]
+      end
+
+      it "returns emptry array if rubric is aligned with outcomes" do
+        assignment_model
+        rubric_model
+        @association = @rubric.associate_with(@assignment, @course, purpose: "grading", use_for_grading: true)
+        @course.enroll_student(@student, enrollment_state: :active)
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
+        assessment = @association.assess({
+                                           user: @student,
+                                           assessor: @teacher,
+                                           artifact: @assignment.find_or_create_submission(@student),
+                                           assessment: {
+                                             :assessment_type => "grading",
+                                             criterion_id => {
+                                               points: "3"
+                                             }
+                                           }
+                                         })
+        expect(assessment.aligned_outcome_ids).to eq []
+      end
+    end
+
     context "outcome criterion" do
       before :once do
         assignment_model
@@ -371,7 +463,7 @@ describe RubricAssessment do
       it "assessing a rubric with outcome criterion should increment datadog counter" do
         allow(InstStatsd::Statsd).to receive(:increment)
         @outcome.update!(data: nil)
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         @association.assess({
                               user: @student,
                               assessor: @teacher,
@@ -389,7 +481,7 @@ describe RubricAssessment do
 
       it "uses default ratings for scoring" do
         @outcome.update!(data: nil)
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         assessment = @association.assess({
                                            user: @student,
                                            assessor: @teacher,
@@ -406,7 +498,7 @@ describe RubricAssessment do
       end
 
       it "does not allow points to exceed max points possible" do
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         assessment = @association.assess({
                                            user: @student,
                                            assessor: @teacher,
@@ -424,7 +516,7 @@ describe RubricAssessment do
 
       it "allows points to exceed max points possible if Allow Outcome Extra Credit feature is enabled" do
         @course.enable_feature!(:outcome_extra_credit)
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         assessment = @association.assess({
                                            user: @student,
                                            assessor: @teacher,
@@ -442,7 +534,7 @@ describe RubricAssessment do
 
       it "propagates hide_points value" do
         @association.update!(hide_points: true)
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         assessment = @association.assess({
                                            user: @student,
                                            assessor: @teacher,
@@ -460,7 +552,7 @@ describe RubricAssessment do
 
       it "truncates the learning outcome result title to 250 characters" do
         @association.update!(title: "a" * 255)
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         @association.assess({
                               user: @student,
                               assessor: @teacher,
@@ -477,7 +569,7 @@ describe RubricAssessment do
 
       it "propagates hide_outcome_results value" do
         @association.update!(hide_outcome_results: true)
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         @association.assess({
                               user: @student,
                               assessor: @teacher,
@@ -493,7 +585,7 @@ describe RubricAssessment do
       end
 
       it "restores a deleted result" do
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         @association.assess({
                               user: @student,
                               assessor: @teacher,
@@ -523,7 +615,7 @@ describe RubricAssessment do
       end
 
       it "does not update outcomes on a peer assessment" do
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         expect do
           @association.assess({
                                 user: @student,
@@ -540,7 +632,7 @@ describe RubricAssessment do
       end
 
       it "does not update outcomes on a provisional grade" do
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         expect do
           submission = @assignment.find_or_create_submission(@student)
           provisional_grade = submission.find_or_create_provisional_grade!(@teacher, grade: 3)
@@ -609,7 +701,7 @@ describe RubricAssessment do
 
     describe "when saving comments is requested" do
       it "saves comments normally" do
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         @association.assess({
                               user: @student,
                               assessor: @student,
@@ -627,7 +719,7 @@ describe RubricAssessment do
       end
 
       it "does not save comments for peer assessments" do
-        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        criterion_id = :"criterion_#{@rubric.data[0][:id]}"
         @association.assess({
                               user: @student,
                               assessor: @student,

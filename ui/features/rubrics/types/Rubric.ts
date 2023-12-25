@@ -16,14 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import type {Rubric} from '@canvas/rubrics/react/types/rubric'
+
 export type RubricQueryResponse = {
   rubricsConnection: {
-    nodes: {
-      id: string
-      criteriaCount: number
-      pointsPossible: number
-      title: string
-      workflowState: string
-    }[]
+    nodes: Rubric[]
   }
 }

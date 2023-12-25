@@ -18,11 +18,11 @@
 
 import React, {useState, useEffect} from 'react'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import {
+import type {
   DeprecatedGradingScheme,
   FinalGradeOverride,
   GradeEntryOptions,
-} from '@canvas/grading/grading'
+} from '@canvas/grading/grading.d'
 import {TextInput} from '@instructure/ui-text-input'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import GradeOverrideEntry from '@canvas/grading/GradeEntry/GradeOverrideEntry'
@@ -39,7 +39,6 @@ export type FinalGradeOverrideTextBoxProps = {
   width?: string
   onGradeChange: (grade: GradeOverrideInfo) => void
   gradingPeriodId?: string | null
-  pointsBasedGradingSchemesFeatureEnabled: boolean
   disabled?: boolean
   showPercentageLabel?: boolean
 }
@@ -49,7 +48,6 @@ export function FinalGradeOverrideTextBox({
   onGradeChange,
   width = '14rem',
   gradingPeriodId,
-  pointsBasedGradingSchemesFeatureEnabled,
   disabled = false,
   showPercentageLabel = false,
 }: FinalGradeOverrideTextBoxProps) {
@@ -84,7 +82,7 @@ export function FinalGradeOverrideTextBox({
   }
 
   const handleFinalGradeOverrideBlur = async () => {
-    const options: GradeEntryOptions = {pointsBasedGradingSchemesFeatureEnabled}
+    const options: GradeEntryOptions = {}
     if (gradingScheme?.data && gradingScheme.data.length > 0) {
       options.gradingScheme = gradingScheme
     }
@@ -92,8 +90,8 @@ export function FinalGradeOverrideTextBox({
       ? finalGradeOverride?.gradingPeriodGrades?.[gradingPeriodId]?.percentage
       : finalGradeOverride?.courseGrade?.percentage
     const gradeOverrideEntry = new GradeOverrideEntry(options)
-    const oldGrade = gradeOverrideEntry.parseValue(percentage)
-    const newGrade = gradeOverrideEntry.parseValue(inputValue)
+    const oldGrade = gradeOverrideEntry.parseValue(percentage, false)
+    const newGrade = gradeOverrideEntry.parseValue(inputValue, true)
 
     const gradeHasChanged = gradeOverrideEntry.hasGradeChanged(oldGrade, newGrade)
     if (!newGrade.valid || newGrade.grade?.percentage == null || !gradeHasChanged) {
@@ -106,8 +104,6 @@ export function FinalGradeOverrideTextBox({
             : ''
         )
       }
-    }
-    if (!gradeHasChanged) {
       return
     }
     onGradeChange(newGrade)
